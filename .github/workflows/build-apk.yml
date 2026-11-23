@@ -19,15 +19,17 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
-        with:
-          packages: |
-            platform-tools
-            platforms;android-36.1
-            build-tools;36.0.0
-          accept-android-sdk-licenses: 'true'
-          log-accepted-android-sdk-licenses: 'false'
+      - name: Prepare Android SDK & Licenses
+        run: |
+          SDK_DIR="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          SDKMANAGER="$(find "$SDK_DIR/cmdline-tools" -name sdkmanager -type f 2>/dev/null | head -n 1)"
+          if [ -n "$SDKMANAGER" ]; then
+            yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+            "$SDKMANAGER" "platform-tools" "build-tools;36.0.0" || true
+            "$SDKMANAGER" "platforms;android-36.1" || "$SDKMANAGER" "platforms;android-36" || true
+          fi
 
       - name: Prepare debug keystore
         run: |
@@ -38,20 +40,15 @@ jobs:
             keytool -genkeypair -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Set up Gradle 9.3.1
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: '9.3.1'
-          cache-provider: 'basic'
+      - name: Install Gradle 9.3.1
+        run: |
+          curl -fsSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle-9.3.1.zip
+          mkdir -p "$HOME/gradle"
+          unzip -q -o /tmp/gradle-9.3.1.zip -d "$HOME/gradle"
+          echo "$HOME/gradle/gradle-9.3.1/bin" >> "$GITHUB_PATH"
 
       - name: Build Debug APK
-        run: |
-          if ! command -v gradle >/dev/null 2>&1; then
-            curl -sSL https://services.gradle.org/distributions/gradle-9.3.1-bin.zip -o /tmp/gradle.zip
-            unzip -q /tmp/gradle.zip -d /opt
-            export PATH="/opt/gradle-9.3.1/bin:$PATH"
-          fi
-          gradle :app:assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
 
       - name: Upload BrightQuiz APK
         uses: actions/upload-artifact@v4
