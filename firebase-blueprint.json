@@ -1,0 +1,198 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private student profile, registration PII, coin balance, and AI study bonus counters",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "country": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "studentName": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "passcodeHash": { "type": "string" },
+        "avatarBase64": { "type": "string" },
+        "coins": { "type": "integer" },
+        "dailyAskCount": { "type": "integer" },
+        "weeklyAskCount": { "type": "integer" },
+        "monthlyAskCount": { "type": "integer" },
+        "askDayKey": { "type": "string" },
+        "askWeekKey": { "type": "string" },
+        "askMonthKey": { "type": "string" },
+        "dailyBonusDayKey": { "type": "string" },
+        "weeklyBonusWeekKey": { "type": "string" },
+        "monthlyBonusMonthKey": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "country",
+        "phoneNumber",
+        "email",
+        "studentName",
+        "schoolName",
+        "coins",
+        "dailyAskCount",
+        "weeklyAskCount",
+        "monthlyAskCount",
+        "askDayKey",
+        "askWeekKey",
+        "askMonthKey",
+        "dailyBonusDayKey",
+        "weeklyBonusWeekKey",
+        "monthlyBonusMonthKey",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "LeaderboardEntry": {
+      "title": "LeaderboardEntry",
+      "description": "Public non-PII student card for leaderboard rankings and friend discovery",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "coins": { "type": "integer" },
+        "levelNumber": { "type": "integer" },
+        "levelTitle": { "type": "string" },
+        "avatarBase64": { "type": "string" },
+        "publicProfile": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "studentName",
+        "schoolName",
+        "coins",
+        "levelNumber",
+        "levelTitle",
+        "publicProfile",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TestAttempt": {
+      "title": "TestAttempt",
+      "description": "Completed test attempt and pass certificate record scoped to a student",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "testType": { "type": "string", "enum": ["DAILY", "WEEKLY", "MONTHLY", "PRACTICE"] },
+        "title": { "type": "string" },
+        "totalQuestions": { "type": "integer" },
+        "correctAnswers": { "type": "integer" },
+        "coinsEarned": { "type": "integer" },
+        "passed": { "type": "boolean" },
+        "studentName": { "type": "string" },
+        "schoolName": { "type": "string" },
+        "durationSeconds": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId",
+        "testType",
+        "title",
+        "totalQuestions",
+        "correctAnswers",
+        "coinsEarned",
+        "passed",
+        "studentName",
+        "schoolName",
+        "durationSeconds",
+        "createdAt"
+      ]
+    },
+    "SharedQuestion": {
+      "title": "SharedQuestion",
+      "description": "Community/educator uploaded MCQ and Current Affairs picture question",
+      "type": "object",
+      "properties": {
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "category": {
+          "type": "string",
+          "enum": ["CURRENT_AFFAIRS", "SCIENCE_SPACE", "GEOGRAPHY", "HISTORY_CIVICS", "SPORTS_ARTS", "GENERAL"]
+        },
+        "questionText": { "type": "string" },
+        "options": { "type": "array" },
+        "correctIndex": { "type": "integer" },
+        "explanation": { "type": "string" },
+        "imageBase64": { "type": "string" },
+        "published": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "authorId",
+        "authorName",
+        "category",
+        "questionText",
+        "options",
+        "correctIndex",
+        "explanation",
+        "published",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "Peer friend request and friendship link between two students",
+      "type": "object",
+      "properties": {
+        "fromUid": { "type": "string" },
+        "fromName": { "type": "string" },
+        "fromSchool": { "type": "string" },
+        "fromCoins": { "type": "integer" },
+        "toUid": { "type": "string" },
+        "toName": { "type": "string" },
+        "toSchool": { "type": "string" },
+        "toCoins": { "type": "integer" },
+        "participants": { "type": "array" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "fromUid",
+        "fromName",
+        "fromSchool",
+        "fromCoins",
+        "toUid",
+        "toName",
+        "toSchool",
+        "toCoins",
+        "participants",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private student profile and PII isolated to the authenticated owner"
+    },
+    "/users/{userId}/history/{attemptId}": {
+      "schema": { "$ref": "#/entities/TestAttempt" },
+      "description": "Immutable test attempt records and earned pass certificates for a student"
+    },
+    "/leaderboard/{userId}": {
+      "schema": { "$ref": "#/entities/LeaderboardEntry" },
+      "description": "Public non-PII leaderboard entries and friend-search directory"
+    },
+    "/questions/{questionId}": {
+      "schema": { "$ref": "#/entities/SharedQuestion" },
+      "description": "Uploaded GK and Current Affairs MCQ questions with optional picture attachments"
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Friend requests and accepted friendships between students"
+    }
+  }
+}

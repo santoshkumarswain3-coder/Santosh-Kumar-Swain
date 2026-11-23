@@ -1,0 +1,276 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.country is string && data.country.size() >= 2 && data.country.size() <= 60 &&
+             data.phoneNumber is string && data.phoneNumber.size() >= 5 && data.phoneNumber.size() <= 25 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
+             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 60 &&
+             data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100 &&
+             data.coins is int && data.coins >= 0 && data.coins <= 100000000 &&
+             data.dailyAskCount is int && data.dailyAskCount >= 0 && data.dailyAskCount <= 10000 &&
+             data.weeklyAskCount is int && data.weeklyAskCount >= 0 && data.weeklyAskCount <= 50000 &&
+             data.monthlyAskCount is int && data.monthlyAskCount >= 0 && data.monthlyAskCount <= 200000 &&
+             data.askDayKey is string && data.askDayKey.size() <= 20 &&
+             data.askWeekKey is string && data.askWeekKey.size() <= 20 &&
+             data.askMonthKey is string && data.askMonthKey.size() <= 20 &&
+             data.dailyBonusDayKey is string && data.dailyBonusDayKey.size() <= 20 &&
+             data.weeklyBonusWeekKey is string && data.weeklyBonusWeekKey.size() <= 20 &&
+             data.monthlyBonusMonthKey is string && data.monthlyBonusMonthKey.size() <= 20 &&
+             (!('passcodeHash' in data) || (data.passcodeHash is string && data.passcodeHash.size() <= 128)) &&
+             (!('avatarBase64' in data) || (data.avatarBase64 is string && data.avatarBase64.size() <= 250000)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidLeaderboardEntry(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 60 &&
+             data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100 &&
+             data.coins is int && data.coins >= 0 && data.coins <= 100000000 &&
+             data.levelNumber is int && data.levelNumber >= 0 && data.levelNumber <= 10 &&
+             data.levelTitle is string && data.levelTitle.size() >= 1 && data.levelTitle.size() <= 40 &&
+             data.publicProfile is bool && data.publicProfile == true &&
+             (!('avatarBase64' in data) || (data.avatarBase64 is string && data.avatarBase64.size() <= 250000)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidTestAttempt(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.testType is string && data.testType in ['DAILY', 'WEEKLY', 'MONTHLY', 'PRACTICE'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+             data.totalQuestions is int && data.totalQuestions >= 1 && data.totalQuestions <= 100 &&
+             data.correctAnswers is int && data.correctAnswers >= 0 && data.correctAnswers <= data.totalQuestions &&
+             data.coinsEarned is int && data.coinsEarned >= 0 && data.coinsEarned <= 2000 &&
+             data.passed is bool &&
+             data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 60 &&
+             data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100 &&
+             data.durationSeconds is int && data.durationSeconds >= 0 && data.durationSeconds <= 3600 &&
+             data.createdAt is timestamp && data.createdAt <= request.time;
+    }
+
+    function isValidQuestion(data) {
+      return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+             data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 60 &&
+             data.category is string && data.category in ['CURRENT_AFFAIRS', 'SCIENCE_SPACE', 'GEOGRAPHY', 'HISTORY_CIVICS', 'SPORTS_ARTS', 'GENERAL'] &&
+             data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 400 &&
+             data.options is list && data.options.size() == 4 &&
+             data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 150 &&
+             data.options[1] is string && data.options[1].size() >= 1 && data.options[1].size() <= 150 &&
+             data.options[2] is string && data.options[2].size() >= 1 && data.options[2].size() <= 150 &&
+             data.options[3] is string && data.options[3].size() >= 1 && data.options[3].size() <= 150 &&
+             data.correctIndex is int && data.correctIndex >= 0 && data.correctIndex <= 3 &&
+             data.explanation is string && data.explanation.size() <= 400 &&
+             data.published is bool && data.published == true &&
+             (!('imageBase64' in data) || (data.imageBase64 is string && data.imageBase64.size() <= 250000)) &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    function isValidFriendRequest(data) {
+      return data.fromUid is string && data.fromUid.size() >= 1 && data.fromUid.size() <= 128 &&
+             data.fromName is string && data.fromName.size() >= 1 && data.fromName.size() <= 60 &&
+             data.fromSchool is string && data.fromSchool.size() >= 1 && data.fromSchool.size() <= 100 &&
+             data.fromCoins is int && data.fromCoins >= 0 && data.fromCoins <= 100000000 &&
+             data.toUid is string && data.toUid.size() >= 1 && data.toUid.size() <= 128 &&
+             data.fromUid != data.toUid &&
+             data.toName is string && data.toName.size() >= 1 && data.toName.size() <= 60 &&
+             data.toSchool is string && data.toSchool.size() >= 1 && data.toSchool.size() <= 100 &&
+             data.toCoins is int && data.toCoins >= 0 && data.toCoins <= 100000000 &&
+             data.participants is list && data.participants.size() == 2 &&
+             data.fromUid in data.participants && data.toUid in data.participants &&
+             data.status is string && data.status in ['pending', 'accepted', 'declined'] &&
+             data.createdAt is timestamp && data.createdAt <= request.time &&
+             data.updatedAt is timestamp && data.updatedAt <= request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+      allow list: if false;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().keys().hasAll([
+                         'userId', 'country', 'phoneNumber', 'email', 'studentName', 'schoolName',
+                         'coins', 'dailyAskCount', 'weeklyAskCount', 'monthlyAskCount',
+                         'askDayKey', 'askWeekKey', 'askMonthKey',
+                         'dailyBonusDayKey', 'weeklyBonusWeekKey', 'monthlyBonusMonthKey',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'country', 'phoneNumber', 'email', 'studentName', 'schoolName',
+                         'passcodeHash', 'avatarBase64', 'coins',
+                         'dailyAskCount', 'weeklyAskCount', 'monthlyAskCount',
+                         'askDayKey', 'askWeekKey', 'askMonthKey',
+                         'dailyBonusDayKey', 'weeklyBonusWeekKey', 'monthlyBonusMonthKey',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidUserProfile(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'country', 'phoneNumber', 'email', 'studentName', 'schoolName',
+                         'passcodeHash', 'avatarBase64', 'coins',
+                         'dailyAskCount', 'weeklyAskCount', 'monthlyAskCount',
+                         'askDayKey', 'askWeekKey', 'askMonthKey',
+                         'dailyBonusDayKey', 'weeklyBonusWeekKey', 'monthlyBonusMonthKey',
+                         'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+
+      match /history/{attemptId} {
+        allow get: if isSignedIn() && isValidId(attemptId) && request.auth.uid == userId;
+        allow list: if isSignedIn() && request.auth.uid == userId;
+
+        allow create: if isSignedIn() &&
+                         isValidId(attemptId) &&
+                         request.auth.uid == userId &&
+                         incoming().keys().hasAll([
+                           'userId', 'testType', 'title', 'totalQuestions', 'correctAnswers',
+                           'coinsEarned', 'passed', 'studentName', 'schoolName',
+                           'durationSeconds', 'createdAt'
+                         ]) &&
+                         incoming().keys().hasOnly([
+                           'userId', 'testType', 'title', 'totalQuestions', 'correctAnswers',
+                           'coinsEarned', 'passed', 'studentName', 'schoolName',
+                           'durationSeconds', 'createdAt'
+                         ]) &&
+                         isValidTestAttempt(incoming(), userId);
+
+        allow update: if false;
+        allow delete: if isSignedIn() && isValidId(attemptId) && request.auth.uid == userId;
+      }
+    }
+
+    match /leaderboard/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && existing().publicProfile == true;
+      allow list: if isSignedIn() && existing().publicProfile == true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       incoming().keys().hasAll([
+                         'userId', 'studentName', 'schoolName', 'coins',
+                         'levelNumber', 'levelTitle', 'publicProfile', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'studentName', 'schoolName', 'coins',
+                         'levelNumber', 'levelTitle', 'avatarBase64', 'publicProfile',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidLeaderboardEntry(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(userId) &&
+                       request.auth.uid == userId &&
+                       isValidLeaderboardEntry(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'studentName', 'schoolName', 'coins', 'levelNumber',
+                         'levelTitle', 'avatarBase64', 'publicProfile', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(userId) && request.auth.uid == userId;
+    }
+
+    match /questions/{questionId} {
+      allow get: if isSignedIn() && isValidId(questionId) && (existing().published == true || existing().authorId == request.auth.uid);
+      allow list: if isSignedIn() && existing().published == true;
+
+      allow create: if isSignedIn() &&
+                       isValidId(questionId) &&
+                       incoming().authorId == request.auth.uid &&
+                       incoming().keys().hasAll([
+                         'authorId', 'authorName', 'category', 'questionText',
+                         'options', 'correctIndex', 'explanation', 'published',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'authorId', 'authorName', 'category', 'questionText',
+                         'options', 'correctIndex', 'explanation', 'imageBase64',
+                         'published', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidQuestion(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(questionId) &&
+                       isValidQuestion(incoming()) &&
+                       existing().authorId == request.auth.uid &&
+                       incoming().authorId == existing().authorId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'authorName', 'category', 'questionText', 'options',
+                         'correctIndex', 'explanation', 'imageBase64', 'published', 'updatedAt'
+                       ]);
+
+      allow delete: if isSignedIn() && isValidId(questionId) && existing().authorId == request.auth.uid;
+    }
+
+    match /friendRequests/{requestId} {
+      allow get: if isSignedIn() && isValidId(requestId) && request.auth.uid in existing().participants;
+      allow list: if isSignedIn() && request.auth.uid in existing().participants;
+
+      allow create: if isSignedIn() &&
+                       isValidId(requestId) &&
+                       incoming().fromUid == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().keys().hasAll([
+                         'fromUid', 'fromName', 'fromSchool', 'fromCoins',
+                         'toUid', 'toName', 'toSchool', 'toCoins',
+                         'participants', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().keys().hasOnly([
+                         'fromUid', 'fromName', 'fromSchool', 'fromCoins',
+                         'toUid', 'toName', 'toSchool', 'toCoins',
+                         'participants', 'status', 'createdAt', 'updatedAt'
+                       ]) &&
+                       isValidFriendRequest(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(requestId) &&
+                       isValidFriendRequest(incoming()) &&
+                       existing().status == 'pending' &&
+                       request.auth.uid == existing().toUid &&
+                       incoming().status in ['accepted', 'declined'] &&
+                       incoming().fromUid == existing().fromUid &&
+                       incoming().toUid == existing().toUid &&
+                       incoming().participants == existing().participants &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isSignedIn() && isValidId(requestId) && request.auth.uid in existing().participants;
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "BrightQuiz",
+  "description": "Children's GK and Current Affairs learning app with timed MCQ tests, picture practice, AI study assistant, coins, levels, certificates, leaderboard, and friends.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
