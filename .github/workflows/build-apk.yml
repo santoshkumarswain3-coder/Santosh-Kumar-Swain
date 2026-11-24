@@ -52,7 +52,28 @@ jobs:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
         run: |
           if [ -n "$GOOGLE_SERVICES_JSON" ]; then
-            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            python3 - <<'PY'
+          import base64, json, os, sys
+          raw = os.environ["GOOGLE_SERVICES_JSON"].lstrip("\ufeff").strip()
+          if not raw.startswith("{"):
+              try:
+                  decoded = base64.b64decode(raw, validate=True).decode("utf-8").lstrip("\ufeff").strip()
+                  if decoded.startswith("{"):
+                      raw = decoded
+              except Exception:
+                  pass
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError as e:
+              print(f"::error::GOOGLE_SERVICES_JSON secret has invalid JSON at line {e.lineno}, column {e.colno}: {e.msg}. Re-copy the entire app/google-services.json file (must start with '{{' and end with '}}').")
+              sys.exit(1)
+          if "project_info" not in data or "client" not in data:
+              print("::error::GOOGLE_SERVICES_JSON does not look like a Firebase google-services.json file (missing project_info/client).")
+              sys.exit(1)
+          with open("app/google-services.json", "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=2)
+          print("Restored valid app/google-services.json")
+          PY
           elif [ ! -f app/google-services.json ]; then
             echo "::error::Missing app/google-services.json. Add GitHub Actions secret GOOGLE_SERVICES_JSON (copy contents of app/google-services.json from AI Studio) in Repo Settings -> Secrets and variables -> Actions."
             exit 1
