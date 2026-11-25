@@ -174,16 +174,7 @@ fun GoogleAuthScreen(
                 )
                 Spacer(modifier = Modifier.height(24.dp))
 
-                GoogleSignInButton(
-                    onAuthSuccess = {
-                        errorMessage = null
-                        onAuthSuccess()
-                    },
-                    onAuthError = { msg -> errorMessage = msg }
-                )
-
                 if (errorMessage != null) {
-                    Spacer(modifier = Modifier.height(14.dp))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.errorContainer,
@@ -196,7 +187,17 @@ fun GoogleAuthScreen(
                             modifier = Modifier.padding(12.dp)
                         )
                     }
+                    Spacer(modifier = Modifier.height(14.dp))
                 }
+
+                GoogleSignInButton(
+                    onAuthSuccess = {
+                        errorMessage = null
+                        onAuthSuccess()
+                    },
+                    onAuthError = { msg -> errorMessage = msg },
+                    onAuthCancelled = { msg -> errorMessage = msg }
+                )
             }
         }
     }
