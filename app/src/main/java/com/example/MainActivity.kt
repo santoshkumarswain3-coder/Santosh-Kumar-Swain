@@ -1,9 +1,14 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,6 +58,7 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.attemptAutoSignIn
 import com.example.data.repository.signOutUser
+import com.example.notifications.QuizNotificationScheduler
 import com.example.ui.components.BrightQuizTopBar
 import com.example.ui.components.CertificateDialog
 import com.example.ui.components.LevelRoadmapDialog
@@ -80,6 +87,9 @@ class MainActivity : ComponentActivity() {
 
         // Mandatory Step 1: Configure App Check with launch intent before setContent / ViewModels
         configureAppCheck(this, intent)
+
+        // Ensure 7:30 PM daily, Sunday weekly, and month-end monthly notifications are scheduled
+        QuizNotificationScheduler.ensureChannelAndScheduleAll(this)
 
         enableEdgeToEdge()
         setContent {
@@ -260,11 +270,35 @@ private fun MainAuthorizedTabs(
     snackbarHostState: SnackbarHostState,
     onSignOut: () -> Unit
 ) {
+    val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
     var showProfileScreen by remember { mutableStateOf(false) }
     var profileInitialTab by remember { mutableIntStateOf(0) }
     var showLevelsDialog by remember { mutableStateOf(false) }
     var showMasterCertDialog by remember { mutableStateOf(false) }
+    var requestedNotifPerm by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            QuizNotificationScheduler.ensureChannelAndScheduleAll(context)
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        QuizNotificationScheduler.ensureChannelAndScheduleAll(context)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !requestedNotifPerm) {
+            val granted = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                requestedNotifPerm = true
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
 
     // Full-screen Test Runner takes precedence
     if (activeTest != null) {
@@ -410,7 +444,7 @@ private fun MainAuthorizedTabs(
             studentName = profile.studentName,
             schoolName = profile.schoolName,
             certificateTitle = "Level 10: Being Master Achievement",
-            achievementLine = "Achieved 10,00,000+ Coins — Grand GK & Current Affairs Master!",
+            achievementLine = "Achieved 10,000,000+ (10M) Coins — Grand GK & Current Affairs Master!",
             dateText = today,
             onDismiss = { showMasterCertDialog = false }
         )

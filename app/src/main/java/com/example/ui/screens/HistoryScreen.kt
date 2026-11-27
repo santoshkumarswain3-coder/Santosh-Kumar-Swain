@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.data.model.LevelsCatalog
 import com.example.data.model.TestAttempt
+import com.example.data.model.TestType
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.CertificateDialog
@@ -108,9 +109,9 @@ fun HistoryScreen(
                         )
                         Text(
                             text = if (isMaster) {
-                                "Unlocked at 10 Lakh coins! View your official Mastery Certificate."
+                                "Unlocked at 10M coins! View your official Mastery Certificate."
                             } else {
-                                "Reach 10,00,000 (10 Lakh) coins to unlock the Being Master Certificate."
+                                "Reach 10M (10,000,000) coins to unlock the Being Master Certificate."
                             },
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (isMaster) OnSunnyGold else MaterialTheme.colorScheme.onSurfaceVariant
@@ -192,7 +193,7 @@ fun HistoryScreen(
                                 Text("No tests completed yet", style = MaterialTheme.typography.titleMedium)
                                 Spacer(Modifier.height(4.dp))
                                 Text(
-                                    text = "Complete a Daily, Weekly, Monthly, or Practice quiz on the Home tab to see your score and certificates here.",
+                                    text = "Complete a Daily, Weekly, Monthly, or Practice quiz on the Home tab to see your scores and Monthly certificates here.",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
@@ -250,7 +251,7 @@ fun HistoryScreen(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
-                                    if (attempt.passed) {
+                                    if (attempt.passed && attempt.testType == TestType.MONTHLY.name) {
                                         OutlinedButton(
                                             onClick = { selectedAttemptForCert = attempt },
                                             modifier = Modifier.testTag("history_view_cert_${attempt.id}")
@@ -295,7 +296,7 @@ fun HistoryScreen(
             studentName = profile.studentName,
             schoolName = profile.schoolName,
             certificateTitle = "Level 10: Being Master Achievement",
-            achievementLine = "Achieved 10,00,000+ Coins — Grand GK & Current Affairs Master!",
+            achievementLine = "Achieved 10,000,000+ (10M) Coins — Grand GK & Current Affairs Master!",
             dateText = today,
             onDismiss = { showMasterCert = false }
         )

@@ -164,7 +164,7 @@ fun HomeScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Score 60%+ in tests to win coins & Pass Certificates.",
+                            text = "Score 60%+ in tests to win coins & Monthly Pass Certificates.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFFE2E8F0)
                         )

@@ -1,5 +1,9 @@
 package com.example.ui.components
 
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -21,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.MilitaryTech
 import androidx.compose.material.icons.filled.MonetizationOn
@@ -29,16 +34,22 @@ import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +57,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,6 +78,8 @@ import com.example.ui.theme.OnSunnyGold
 import com.example.ui.theme.SunnyGold
 import com.example.ui.theme.SunnyGoldLight
 import com.example.ui.theme.WarmIvory
+import com.example.util.CertificateImageSaver
+import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -400,6 +414,38 @@ fun CertificateDialog(
     dateText: String,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var isSaving by remember { mutableStateOf(false) }
+    var saveFeedback by remember { mutableStateOf<Pair<Boolean, String>?>(null) }
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("image/png")
+    ) { uri ->
+        if (uri == null) {
+            isSaving = false
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            val res = CertificateImageSaver.writeCertificatePngToUri(
+                context = context,
+                targetUri = uri,
+                studentName = studentName,
+                schoolName = schoolName,
+                certificateTitle = certificateTitle,
+                achievementLine = achievementLine,
+                dateText = dateText
+            )
+            isSaving = false
+            res.onSuccess {
+                saveFeedback = true to "Certificate saved!"
+                Toast.makeText(context, "Certificate saved!", Toast.LENGTH_SHORT).show()
+            }.onFailure { err ->
+                saveFeedback = false to (err.localizedMessage ?: "Failed to save certificate.")
+            }
+        }
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(24.dp),
@@ -408,7 +454,9 @@ fun CertificateDialog(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(22.dp),
+                modifier = Modifier
+                    .padding(22.dp)
+                    .verticalScroll(rememberScrollState()),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Image(
@@ -472,11 +520,80 @@ fun CertificateDialog(
                     style = MaterialTheme.typography.labelMedium,
                     color = Color(0xFF64748B)
                 )
+
+                val feedback = saveFeedback
+                if (feedback != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = feedback.second,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (feedback.first) EmeraldCorrect else MaterialTheme.colorScheme.error,
+                        textAlign = TextAlign.Center
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
+                    onClick = {
+                        if (isSaving) return@Button
+                        saveFeedback = null
+                        isSaving = true
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            scope.launch {
+                                val res = CertificateImageSaver.saveCertificateToGallery(
+                                    context = context,
+                                    studentName = studentName,
+                                    schoolName = schoolName,
+                                    certificateTitle = certificateTitle,
+                                    achievementLine = achievementLine,
+                                    dateText = dateText
+                                )
+                                isSaving = false
+                                res.onSuccess {
+                                    saveFeedback = true to "Saved to Gallery (Pictures/BrightQuiz)!"
+                                    Toast.makeText(
+                                        context,
+                                        "Certificate saved to Gallery!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }.onFailure { err ->
+                                    saveFeedback = false to (err.localizedMessage ?: "Failed to save to gallery.")
+                                }
+                            }
+                        } else {
+                            createDocumentLauncher.launch("BrightQuiz_Certificate_${System.currentTimeMillis()}.png")
+                        }
+                    },
+                    enabled = !isSaving,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("save_certificate_gallery_button")
+                ) {
+                    if (isSaving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Saving...")
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Download,
+                            contentDescription = "Save certificate to gallery"
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Save to Gallery")
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .height(48.dp)
                         .testTag("close_certificate_dialog")
                 ) {
                     Text("Done")

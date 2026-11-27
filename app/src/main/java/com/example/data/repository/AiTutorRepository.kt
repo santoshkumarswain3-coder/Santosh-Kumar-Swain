@@ -2,17 +2,23 @@ package com.example.data.repository
 
 import android.graphics.Bitmap
 import android.util.Log
+import com.example.data.firebase.AppCheckInitState
 import com.google.firebase.Firebase
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.ImagePart
 import com.google.firebase.ai.type.ResponseModality
 import com.google.firebase.ai.type.content
 import com.google.firebase.ai.type.generationConfig
+import com.google.firebase.appcheck.AppCheckToken
+import com.google.firebase.appcheck.FirebaseAppCheck
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class AiTutorRepository {
 
@@ -40,6 +46,46 @@ class AiTutorRepository {
         )
     }
 
+    private suspend fun ensureValidAppCheckToken(forceRefresh: Boolean = false) {
+        try {
+            val token = withTimeout(20_000L) {
+                suspendCancellableCoroutine<AppCheckToken> { continuation ->
+                    FirebaseAppCheck.getInstance()
+                        .getAppCheckToken(forceRefresh)
+                        .addOnSuccessListener { result ->
+                            if (continuation.isActive) continuation.resume(result)
+                        }
+                        .addOnFailureListener { error ->
+                            if (continuation.isActive) continuation.resumeWithException(error)
+                        }
+                }
+            }
+            if (token.token.isBlank()) {
+                throw IllegalStateException(
+                    "App Check (${AppCheckInitState.providerSummary}) returned an empty token."
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(
+                TAG,
+                "App Check token retrieval failed (provider=${AppCheckInitState.providerSummary}, forceRefresh=$forceRefresh)",
+                e
+            )
+            throw IllegalStateException(
+                "App Check (${AppCheckInitState.providerSummary}) failed: ${e.localizedMessage ?: e.javaClass.simpleName}",
+                e
+            )
+        }
+    }
+
+    private fun isAppCheckServerError(error: Throwable): Boolean {
+        val msg = error.message.orEmpty()
+        return msg.contains("App Check", ignoreCase = true) ||
+            msg.contains("appcheck", ignoreCase = true)
+    }
+
     fun askStudyTutorStream(question: String, recentHistory: List<Pair<String, String>>): Flow<String> = flow {
         val contextPrompt = buildString {
             if (recentHistory.isNotEmpty()) {
@@ -53,18 +99,44 @@ class AiTutorRepository {
             append(question.trim())
         }
 
-        val accumulated = StringBuilder()
-        withTimeout(60_000L) {
-            studyTutorModel.generateContentStream(contextPrompt).collect { chunk ->
-                val text = chunk.text.orEmpty()
-                if (text.isNotEmpty()) {
-                    accumulated.append(text)
-                    emit(accumulated.toString())
+        var attempt = 0
+        while (true) {
+            ensureValidAppCheckToken(forceRefresh = attempt > 0)
+            val accumulated = StringBuilder()
+            try {
+                withTimeout(60_000L) {
+                    studyTutorModel.generateContentStream(contextPrompt).collect { chunk ->
+                        val text = chunk.text.orEmpty()
+                        if (text.isNotEmpty()) {
+                            accumulated.append(text)
+                            emit(accumulated.toString())
+                        }
+                    }
                 }
+                if (accumulated.isBlank()) {
+                    throw IllegalStateException("Study tutor returned an empty response.")
+                }
+                break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (attempt == 0 && accumulated.isEmpty() && isAppCheckServerError(e)) {
+                    attempt++
+                    Log.w(
+                        TAG,
+                        "Retrying Study Tutor after force-refreshing App Check token (${AppCheckInitState.providerSummary})",
+                        e
+                    )
+                    continue
+                }
+                if (isAppCheckServerError(e)) {
+                    throw IllegalStateException(
+                        "${e.localizedMessage ?: "Firebase App Check token is invalid."} [${AppCheckInitState.providerSummary}]",
+                        e
+                    )
+                }
+                throw e
             }
-        }
-        if (accumulated.isBlank()) {
-            throw IllegalStateException("Study tutor returned an empty response.")
         }
     }
 
@@ -72,13 +144,7 @@ class AiTutorRepository {
         return try {
             val sanitized = characterPrompt.trim().ifBlank { "cheerful young scholar with glasses and stars" }
             val fullPrompt = "Friendly colorful Pixar-style 3D portrait avatar for a student profile badge: $sanitized, bright warm studio lighting, clean pastel background, centered head-and-shoulders portrait, no text"
-            val bitmap = withTimeout(60_000L) {
-                val response = imageModel.generateContent(fullPrompt)
-                val imagePart = response.candidates.firstOrNull()
-                    ?.content?.parts?.filterIsInstance<ImagePart>()
-                    ?.firstOrNull()
-                imagePart?.image
-            }
+            val bitmap = generateImageWithAppCheckRetry(fullPrompt)
             if (bitmap != null) {
                 Result.success(bitmap)
             } else {
@@ -99,13 +165,7 @@ class AiTutorRepository {
         return try {
             val sanitized = topicPrompt.trim().ifBlank { "world globe with science discovery icons" }
             val fullPrompt = "Child-friendly colorful editorial vector illustration for a school current affairs quiz card: $sanitized, crisp clean details, bright lighting, no text or labels"
-            val bitmap = withTimeout(60_000L) {
-                val response = imageModel.generateContent(fullPrompt)
-                val imagePart = response.candidates.firstOrNull()
-                    ?.content?.parts?.filterIsInstance<ImagePart>()
-                    ?.firstOrNull()
-                imagePart?.image
-            }
+            val bitmap = generateImageWithAppCheckRetry(fullPrompt)
             if (bitmap != null) {
                 Result.success(bitmap)
             } else {
@@ -119,6 +179,41 @@ class AiTutorRepository {
         } catch (e: Exception) {
             Log.e(TAG, "Current affairs illustration failed", e)
             Result.failure(e)
+        }
+    }
+
+    private suspend fun generateImageWithAppCheckRetry(fullPrompt: String): Bitmap? {
+        var attempt = 0
+        while (true) {
+            ensureValidAppCheckToken(forceRefresh = attempt > 0)
+            try {
+                return withTimeout(60_000L) {
+                    val response = imageModel.generateContent(fullPrompt)
+                    val imagePart = response.candidates.firstOrNull()
+                        ?.content?.parts?.filterIsInstance<ImagePart>()
+                        ?.firstOrNull()
+                    imagePart?.image
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (attempt == 0 && isAppCheckServerError(e)) {
+                    attempt++
+                    Log.w(
+                        TAG,
+                        "Retrying image generation after force-refreshing App Check token (${AppCheckInitState.providerSummary})",
+                        e
+                    )
+                    continue
+                }
+                if (isAppCheckServerError(e)) {
+                    throw IllegalStateException(
+                        "${e.localizedMessage ?: "Firebase App Check token is invalid."} [${AppCheckInitState.providerSummary}]",
+                        e
+                    )
+                }
+                throw e
+            }
         }
     }
 

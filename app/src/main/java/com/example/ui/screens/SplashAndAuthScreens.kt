@@ -374,7 +374,7 @@ fun StudentRegistrationWizard(
                                 Text("Student's Name", style = MaterialTheme.typography.headlineMedium)
                                 Spacer(Modifier.height(8.dp))
                                 Text(
-                                    text = "This name will appear on your Leaderboard badge and Pass Certificates!",
+                                    text = "This name will appear on your Leaderboard badge and Certificates!",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

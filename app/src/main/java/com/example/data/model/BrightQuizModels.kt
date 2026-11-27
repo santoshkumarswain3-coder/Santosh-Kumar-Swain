@@ -77,11 +77,11 @@ object LevelsCatalog {
         LevelTier(7, "Almost Expert", 100_000L, "1 Lakh Coins • Elite thinker!"),
         LevelTier(8, "Expert", 200_000L, "2 Lakh Coins • Quiz champion!"),
         LevelTier(9, "EXCLUSIVE", 500_000L, "5 Lakh Coins • Exclusive hall of fame!"),
-        LevelTier(10, "Being Master", 1_000_000L, "10 Lakh Coins • Unlocks Being Master Certificate!")
+        LevelTier(10, "Being Master", 10_000_000L, "10M Coins • Unlocks Being Master Certificate!")
     )
 
     const val WOW_VERY_NICE_COINS = 40_000L
-    const val MASTER_COINS = 1_000_000L
+    const val MASTER_COINS = 10_000_000L
 
     fun levelForCoins(coins: Long): LevelTier =
         tiers.lastOrNull { coins >= it.minCoins } ?: tiers.first()

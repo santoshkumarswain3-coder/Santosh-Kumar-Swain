@@ -431,7 +431,10 @@ private fun TestResultSummaryScreen(
                     ResultStatPill("Coins", "+${attempt.coinsEarned}")
                 }
 
-                if (attempt.passed) {
+                val isMonthlyTest = attempt.testType == TestType.MONTHLY.name
+                val earnsCertificate = attempt.passed && isMonthlyTest
+
+                if (earnsCertificate) {
                     Spacer(Modifier.height(18.dp))
                     Button(
                         onClick = { showCertificate = true },
@@ -444,10 +447,22 @@ private fun TestResultSummaryScreen(
                         Spacer(Modifier.width(8.dp))
                         Text("View Pass Certificate")
                     }
+                } else if (attempt.passed) {
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = "Great job! Pass the Monthly Grand Quiz (60%+) or reach 10M coins to earn a certificate.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
                 } else {
                     Spacer(Modifier.height(14.dp))
                     Text(
-                        text = "Score 60% or higher to unlock the Pass Certificate and full coin reward!",
+                        text = if (isMonthlyTest) {
+                            "Score 60% or higher in the Monthly Grand Quiz to unlock the Pass Certificate and full coin reward!"
+                        } else {
+                            "Score 60% or higher to earn the full coin reward! Certificates unlock on Monthly Grand Quiz and 10M coins."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
