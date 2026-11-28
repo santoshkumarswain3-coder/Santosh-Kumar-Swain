@@ -6,39 +6,48 @@ import com.example.data.model.QuizQuestion
 import kotlin.random.Random
 
 /**
- * Persists Gemini Sign-In status & API key locally on the student's device so
- * once signed in on the Ask tab, the user is not prompted again on future visits.
+ * Persists Google "Sign in to Gemini" status & account info locally on the device
+ * so once a student signs in to Gemini on the Ask tab, they are not asked again.
  */
-class GeminiSessionStore(context: Context) {
+class GeminiSessionStore(context: Context, private val userId: String) {
     private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun isSignedIn(): Boolean = !getApiKey().isNullOrBlank()
+    fun isSignedIn(): Boolean = prefs.getBoolean(signedInKey(), false)
 
-    fun getApiKey(): String? = prefs.getString(KEY_API_KEY, null)?.trim()?.takeIf { it.isNotEmpty() }
+    fun getAccountLabel(): String {
+        val name = prefs.getString(nameKey(), null).orEmpty().trim()
+        val email = prefs.getString(emailKey(), null).orEmpty().trim()
+        return when {
+            name.isNotEmpty() -> name
+            email.isNotEmpty() -> email
+            else -> "Gemini Connected"
+        }
+    }
 
-    fun getAccountLabel(): String = prefs.getString(KEY_ACCOUNT_LABEL, null).orEmpty().ifBlank { "Gemini Account" }
+    fun getAccountEmail(): String = prefs.getString(emailKey(), null).orEmpty()
 
-    fun saveSignIn(apiKey: String, accountLabel: String) {
+    fun saveSignIn(email: String, displayName: String) {
         prefs.edit()
-            .putString(KEY_API_KEY, apiKey.trim())
-            .putString(KEY_ACCOUNT_LABEL, accountLabel.trim().ifEmpty { "Gemini Account" })
-            .putBoolean(KEY_SIGNED_IN, true)
+            .putBoolean(signedInKey(), true)
+            .putString(emailKey(), email.trim())
+            .putString(nameKey(), displayName.trim())
             .apply()
     }
 
     fun signOut() {
         prefs.edit()
-            .remove(KEY_API_KEY)
-            .remove(KEY_ACCOUNT_LABEL)
-            .putBoolean(KEY_SIGNED_IN, false)
+            .putBoolean(signedInKey(), false)
+            .remove(emailKey())
+            .remove(nameKey())
             .apply()
     }
 
+    private fun signedInKey() = "gemini_signed_in_$userId"
+    private fun emailKey() = "gemini_email_$userId"
+    private fun nameKey() = "gemini_name_$userId"
+
     private companion object {
         const val PREFS_NAME = "brightquiz_gemini_session"
-        const val KEY_API_KEY = "gemini_api_key"
-        const val KEY_ACCOUNT_LABEL = "gemini_account_label"
-        const val KEY_SIGNED_IN = "gemini_signed_in"
     }
 }
 

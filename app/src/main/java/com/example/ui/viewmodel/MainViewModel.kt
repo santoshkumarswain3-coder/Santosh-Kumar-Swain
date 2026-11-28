@@ -22,7 +22,6 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.AiTutorRepository
 import com.example.data.repository.BrightQuizRepository
-import com.example.data.repository.GeminiAuthException
 import com.example.data.repository.GeminiSessionStore
 import com.example.data.repository.QuestionSelector
 import com.example.data.repository.SeenQuestionsStore
@@ -144,32 +143,16 @@ class MainViewModel(
         _askState.value = _askState.value.copy(latestBonusMessage = null)
     }
 
-    fun signInToGemini(apiKey: String, accountLabel: String) {
-        val trimmedKey = apiKey.trim()
-        if (trimmedKey.isEmpty() || _askState.value.isVerifyingSignIn) return
-        viewModelScope.launch {
-            _askState.value = _askState.value.copy(
-                isVerifyingSignIn = true,
-                signInError = null
-            )
-            val result = aiRepository.verifyGeminiKey(trimmedKey)
-            result.onSuccess {
-                val label = accountLabel.trim().ifBlank { "Gemini Connected" }
-                geminiSessionStore.saveSignIn(trimmedKey, label)
-                _askState.value = _askState.value.copy(
-                    isGeminiSignedIn = true,
-                    geminiAccountLabel = label,
-                    isVerifyingSignIn = false,
-                    signInError = null,
-                    errorMessage = null
-                )
-            }.onFailure { err ->
-                _askState.value = _askState.value.copy(
-                    isVerifyingSignIn = false,
-                    signInError = err.localizedMessage ?: "Could not verify Gemini sign-in."
-                )
-            }
-        }
+    fun completeGeminiSignIn(email: String, displayName: String) {
+        val label = displayName.trim().ifBlank { email.trim() }.ifBlank { "Gemini Connected" }
+        geminiSessionStore.saveSignIn(email, displayName)
+        _askState.value = _askState.value.copy(
+            isGeminiSignedIn = true,
+            geminiAccountLabel = label,
+            isVerifyingSignIn = false,
+            signInError = null,
+            errorMessage = null
+        )
     }
 
     fun signOutGemini() {
@@ -436,8 +419,7 @@ class MainViewModel(
     fun askStudyQuestion(questionText: String) {
         val trimmed = questionText.trim()
         if (trimmed.isEmpty() || _askState.value.isStreaming) return
-        val apiKey = geminiSessionStore.getApiKey()
-        if (apiKey.isNullOrBlank()) {
+        if (!geminiSessionStore.isSignedIn()) {
             _askState.value = _askState.value.copy(
                 isGeminiSignedIn = false,
                 signInError = "Please sign in to Gemini first to ask study questions."
@@ -471,7 +453,6 @@ class MainViewModel(
             var finalReply = ""
             try {
                 aiRepository.askStudyTutorStream(
-                    apiKey = apiKey,
                     question = trimmed,
                     recentHistory = historyPairs,
                     studentGrade = studentGrade,
@@ -509,15 +490,6 @@ class MainViewModel(
                 )
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: GeminiAuthException) {
-                Log.w(TAG, "Gemini authentication expired or invalid", e)
-                geminiSessionStore.signOut()
-                _askState.value = _askState.value.copy(
-                    isGeminiSignedIn = false,
-                    isStreaming = false,
-                    streamingText = "",
-                    signInError = e.localizedMessage ?: "Your Gemini key was rejected. Please sign in to Gemini again."
-                )
             } catch (e: Exception) {
                 Log.e(TAG, "Gemini Study Tutor error", e)
                 _askState.value = _askState.value.copy(
@@ -568,8 +540,8 @@ class MainViewModel(
                 val db = FirebaseFirestore.getInstance(app.getString(R.string.firestore_database_id))
                 MainViewModel(
                     repository = BrightQuizRepository(db),
-                    aiRepository = AiTutorRepository(),
-                    geminiSessionStore = GeminiSessionStore(app),
+                    aiRepository = AiTutorRepository(app.applicationContext),
+                    geminiSessionStore = GeminiSessionStore(app, currentUserId),
                     seenQuestionsStore = SeenQuestionsStore(app, currentUserId),
                     currentUserId = currentUserId
                 )

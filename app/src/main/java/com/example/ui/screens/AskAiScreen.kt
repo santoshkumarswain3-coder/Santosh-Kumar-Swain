@@ -1,7 +1,5 @@
 package com.example.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -24,14 +22,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -42,7 +37,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,6 +46,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,13 +55,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.credentials.CredentialManager
 import com.example.data.model.GradeCatalog
 import com.example.data.model.UserProfile
 import com.example.data.repository.BrightQuizRepository
+import com.example.data.repository.signInForGeminiWithGoogle
 import com.example.ui.theme.CoralContainer
 import com.example.ui.theme.EmeraldContainer
 import com.example.ui.theme.EmeraldCorrect
@@ -77,24 +72,22 @@ import com.example.ui.theme.SunnyGoldLight
 import com.example.ui.viewmodel.AskTabState
 import com.example.util.AppStrings
 
-private const val GEMINI_API_KEY_URL = "https://aistudio.google.com/apikey"
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AskAiScreen(
     profile: UserProfile,
     askState: AskTabState,
     strings: AppStrings = AppStrings.forLanguage(profile.language),
-    onSignInToGemini: (apiKey: String, accountLabel: String) -> Unit,
+    onCompleteGeminiSignIn: (email: String, displayName: String) -> Unit,
     onSignOutGemini: () -> Unit,
     onSendQuestion: (String) -> Unit
 ) {
     if (!askState.isGeminiSignedIn) {
         GeminiSignInGateCard(
             profile = profile,
-            askState = askState,
+            initialError = askState.signInError,
             strings = strings,
-            onSignInToGemini = onSignInToGemini
+            onSignedIn = onCompleteGeminiSignIn
         )
         return
     }
@@ -166,7 +159,7 @@ fun AskAiScreen(
                     }
                     TextButton(
                         onClick = onSignOutGemini,
-                        modifier = Modifier.testTag("gemini_switch_key_button")
+                        modifier = Modifier.testTag("gemini_switch_account_button")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.CheckCircle,
@@ -397,13 +390,16 @@ fun AskAiScreen(
 @Composable
 private fun GeminiSignInGateCard(
     profile: UserProfile,
-    askState: AskTabState,
+    initialError: String?,
     strings: AppStrings,
-    onSignInToGemini: (apiKey: String, accountLabel: String) -> Unit
+    onSignedIn: (email: String, displayName: String) -> Unit
 ) {
     val context = LocalContext.current
-    var apiKeyInput by remember { mutableStateOf("") }
-    var showKey by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val credentialManager = remember(context) { CredentialManager.create(context) }
+
+    var isSigningIn by remember { mutableStateOf(false) }
+    var signInError by remember(initialError) { mutableStateOf(initialError) }
 
     Column(
         modifier = Modifier
@@ -420,13 +416,13 @@ private fun GeminiSignInGateCard(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(20.dp),
+                modifier = Modifier.padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(64.dp)
+                    modifier = Modifier.size(72.dp)
                 ) {
                     Column(
                         verticalArrangement = Arrangement.Center,
@@ -436,11 +432,11 @@ private fun GeminiSignInGateCard(
                             imageVector = Icons.Filled.AutoAwesome,
                             contentDescription = "Gemini AI",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(34.dp)
+                            modifier = Modifier.size(38.dp)
                         )
                     }
                 }
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
                     text = strings.geminiSignInTitle,
                     style = MaterialTheme.typography.headlineMedium,
@@ -449,11 +445,11 @@ private fun GeminiSignInGateCard(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = strings.geminiSignInSubtitle,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = SunnyGoldLight
@@ -463,83 +459,70 @@ private fun GeminiSignInGateCard(
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Bold,
                         color = OnSunnyGold,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
-                OutlinedButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(GEMINI_API_KEY_URL))
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("get_gemini_key_button")
-                ) {
-                    Icon(Icons.Filled.Key, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Get Gemini Key in Google AI Studio")
-                    Spacer(Modifier.width(6.dp))
-                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                }
-
-                Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
-                    value = apiKeyInput,
-                    onValueChange = { apiKeyInput = it },
-                    label = { Text("Gemini API Key") },
-                    placeholder = { Text("Paste AIza... key") },
-                    singleLine = true,
-                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = {
-                        IconButton(onClick = { showKey = !showKey }) {
-                            Icon(
-                                imageVector = if (showKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                                contentDescription = if (showKey) "Hide key" else "Show key"
-                            )
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("gemini_api_key_input")
-                )
-
-                if (askState.signInError != null) {
-                    Spacer(Modifier.height(10.dp))
+                if (signInError != null) {
+                    Spacer(Modifier.height(14.dp))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = CoralContainer,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = askState.signInError,
+                            text = signInError ?: "",
                             color = OnCoralContainer,
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(10.dp)
+                            modifier = Modifier.padding(12.dp)
                         )
                     }
                 }
 
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(22.dp))
                 Button(
                     onClick = {
-                        onSignInToGemini(apiKeyInput, profile.email.ifBlank { profile.studentName })
+                        isSigningIn = true
+                        signInError = null
+                        signInForGeminiWithGoogle(
+                            context = context,
+                            credentialManager = credentialManager,
+                            scope = scope,
+                            onSuccess = { email, displayName ->
+                                isSigningIn = false
+                                onSignedIn(email, displayName)
+                            },
+                            onError = { err ->
+                                isSigningIn = false
+                                signInError = err
+                            },
+                            onCancelled = { msg ->
+                                isSigningIn = false
+                                signInError = msg
+                            }
+                        )
                     },
-                    enabled = apiKeyInput.trim().isNotEmpty() && !askState.isVerifyingSignIn,
+                    enabled = !isSigningIn,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("gemini_sign_in_submit_button")
+                        .height(54.dp)
+                        .testTag("gemini_sign_in_button")
                 ) {
-                    if (askState.isVerifyingSignIn) {
-                        CircularProgressIndicator(Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Connecting to Gemini...")
+                    if (isSigningIn) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Text("Signing in to Gemini...")
                     } else {
-                        Icon(Icons.Filled.AutoAwesome, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Filled.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(10.dp))
                         Text(strings.geminiSignInButton)
                     }
                 }

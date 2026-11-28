@@ -85,6 +85,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // STEP 1: Configure Firebase App Check with launch intent before any UI or Firebase operations
+        configureAppCheck(this, intent)
+
         // Ensure 7:30 PM daily, Sunday weekly, and month-end monthly notifications are scheduled
         QuizNotificationScheduler.ensureChannelAndScheduleAll(this)
 
@@ -406,7 +409,7 @@ private fun MainAuthorizedTabs(
                     profile = profile,
                     askState = askState,
                     strings = strings,
-                    onSignInToGemini = viewModel::signInToGemini,
+                    onCompleteGeminiSignIn = viewModel::completeGeminiSignIn,
                     onSignOutGemini = viewModel::signOutGemini,
                     onSendQuestion = viewModel::askStudyQuestion
                 )

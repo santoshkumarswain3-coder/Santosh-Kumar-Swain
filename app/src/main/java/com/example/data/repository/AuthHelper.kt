@@ -240,6 +240,57 @@ fun signOutUser(
     }
 }
 
+/**
+ * Interactive Google Sign-In flow specifically for connecting Gemini on the Ask tab.
+ * Uses GetSignInWithGoogleOption so the student selects/confirms their Google account
+ * without leaving the app or entering any API key.
+ */
+fun signInForGeminiWithGoogle(
+    context: Context,
+    credentialManager: CredentialManager,
+    scope: CoroutineScope,
+    onSuccess: (email: String, displayName: String) -> Unit,
+    onError: (String) -> Unit,
+    onCancelled: (String) -> Unit
+) {
+    val clientId = try {
+        context.getString(R.string.default_web_client_id)
+    } catch (_: Exception) {
+        onError("Google Sign-In configuration missing: default_web_client_id not found")
+        return
+    }
+    val signInOption = GetSignInWithGoogleOption.Builder(serverClientId = clientId).build()
+    val request = GetCredentialRequest.Builder()
+        .addCredentialOption(signInOption)
+        .build()
+
+    scope.launch {
+        try {
+            val activityContext = context.findActivity()
+                ?: throw IllegalStateException("Google Sign-In requires an Activity context.")
+            val cred = credentialManager.getCredential(activityContext, request).credential
+            if (cred is CustomCredential && cred.type == TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                val googleCred = GoogleIdTokenCredential.createFrom(cred.data)
+                onSuccess(
+                    googleCred.id,
+                    googleCred.displayName.orEmpty().ifBlank { googleCred.id }
+                )
+            } else {
+                onError("Unexpected credential type returned.")
+            }
+        } catch (e: GetCredentialCancellationException) {
+            Log.w("Auth", "Gemini Google Sign-In cancelled: ${e.message}", e)
+            onCancelled("Sign in to Gemini was cancelled. Please select your Google account to continue.")
+        } catch (e: NoCredentialException) {
+            Log.w("Auth", "No Google credentials found for Gemini sign-in: ${e.message}", e)
+            onError("No Google account found on this device. Please add a Google account in Settings.")
+        } catch (e: Exception) {
+            Log.e("Auth", "Gemini Google Sign-In failed", e)
+            onError(e.localizedMessage ?: "Failed to sign in to Gemini.")
+        }
+    }
+}
+
 fun sha256Hash(input: String): String {
     if (input.isBlank()) return ""
     val bytes = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
