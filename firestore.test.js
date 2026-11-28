@@ -45,6 +45,8 @@ function validUserProfile(uid, ts) {
     phoneNumber: "+919876543210",
     email: "alice@example.com",
     studentName: "Aarav Sharma",
+    grade: "Grade 6",
+    language: "English",
     schoolName: "Sunrise Public School",
     coins: 100,
     dailyAskCount: 2,
@@ -79,11 +81,21 @@ test("User profile PII isolation: owner can create/update, cross-user read/write
     aliceDb.collection("users").doc(ALICE_UID).set(validUserProfile(ALICE_UID, ts))
   );
 
-  // Partial update allowed
+  // Partial update allowed (coins, grade, language)
   await assertSucceeds(
     aliceDb.collection("users").doc(ALICE_UID).update({
       coins: 110,
+      grade: "Grade 7",
+      language: "Hindi",
       updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // Invalid grade or language rejected
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      grade: "",
+      updatedAt: new Date(Date.now() - 500),
     })
   );
 
@@ -170,11 +182,29 @@ test("Shared questions: create & filtered list succeed, @DocumentId id key rejec
     aliceDb.collection("questions").doc("q_1").set({
       authorId: ALICE_UID,
       authorName: "Aarav Sharma",
-      category: "CURRENT_AFFAIRS",
-      questionText: "Which planet is known as the Red Planet?",
-      options: ["Venus", "Mars", "Jupiter", "Saturn"],
+      category: "MATHEMATICS",
+      targetGrade: 6,
+      questionText: "What is 15% of 200?",
+      options: ["20", "25", "30", "35"],
+      correctIndex: 2,
+      explanation: "15/100 * 200 = 30.",
+      published: true,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Invalid targetGrade (> 12) rejected
+  await assertFails(
+    aliceDb.collection("questions").doc("q_bad_grade").set({
+      authorId: ALICE_UID,
+      authorName: "Aarav Sharma",
+      category: "COMPUTER_TECH",
+      targetGrade: 15,
+      questionText: "What does CPU stand for?",
+      options: ["Central Process Unit", "Central Processing Unit", "Core Power Unit", "Control Program Unit"],
       correctIndex: 1,
-      explanation: "Iron oxide dust on Mars gives it a reddish look.",
+      explanation: "CPU stands for Central Processing Unit.",
       published: true,
       createdAt: ts,
       updatedAt: ts,

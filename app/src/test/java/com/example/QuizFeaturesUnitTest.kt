@@ -1,12 +1,22 @@
 package com.example
 
+import com.example.data.BuiltInQuestionBank
+import com.example.data.model.GradeCatalog
 import com.example.data.model.LevelsCatalog
+import com.example.data.model.QuestionCategory
+import com.example.data.model.QuizQuestion
+import com.example.data.repository.QuestionSelector
 import com.example.notifications.QuizNotificationScheduler
 import com.example.notifications.QuizReminderKind
+import com.example.util.AppStrings
+import com.example.util.LanguageCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Calendar
 import java.util.TimeZone
+import kotlin.random.Random
 
 class QuizFeaturesUnitTest {
 
@@ -84,5 +94,135 @@ class QuizFeaturesUnitTest {
         assertEquals(10_000_000L, LevelsCatalog.MASTER_COINS)
         assertEquals("EXCLUSIVE", LevelsCatalog.levelForCoins(9_999_999L).title)
         assertEquals("Being Master", LevelsCatalog.levelForCoins(10_000_000L).title)
+    }
+
+    @Test
+    fun gradeCatalog_parsesAndNormalizesGradesCorrectly() {
+        assertEquals(1, GradeCatalog.parseGradeNumber("Grade 1"))
+        assertEquals(12, GradeCatalog.parseGradeNumber("Class 12 Science"))
+        assertEquals(5, GradeCatalog.parseGradeNumber(null))
+        assertEquals(1, GradeCatalog.parseGradeNumber("0"))
+        assertEquals(12, GradeCatalog.parseGradeNumber("99"))
+        assertEquals("Grade 8", GradeCatalog.normalizeGrade("8"))
+        assertEquals(12, GradeCatalog.grades.size)
+    }
+
+    @Test
+    fun questionSelector_prioritizesGradeAndAvoidsConsecutiveRepeats() {
+        val pool = (1..30).map { i ->
+            QuizQuestion(
+                id = "q_$i",
+                category = QuestionCategory.MATHEMATICS,
+                questionText = "Question $i",
+                options = listOf("A", "B", "C", "D"),
+                correctIndex = 0,
+                explanation = "Explanation $i",
+                minGrade = if (i <= 20) 1 else 10,
+                maxGrade = if (i <= 20) 4 else 12
+            )
+        }
+
+        // First draw for Grade 2 (10 questions): must come strictly from grades 1..4
+        val firstTest = QuestionSelector.selectQuestions(
+            pool = pool,
+            userGrade = 2,
+            requestedCount = 10,
+            random = Random(42)
+        )
+        assertEquals(10, firstTest.size)
+        assertTrue(firstTest.all { it.matchesGrade(2) })
+
+        val seenAfterFirst = firstTest.map { it.id }.toSet()
+        val lastAfterFirst = seenAfterFirst
+
+        // Second draw for Grade 2 (10 questions): must get the remaining 10 grade-matched unseen questions (zero overlap!)
+        val secondTest = QuestionSelector.selectQuestions(
+            pool = pool,
+            userGrade = 2,
+            requestedCount = 10,
+            seenIds = seenAfterFirst,
+            lastTestIds = lastAfterFirst,
+            random = Random(43)
+        )
+        assertEquals(10, secondTest.size)
+        assertTrue(secondTest.all { it.matchesGrade(2) })
+        assertTrue(secondTest.none { it.id in seenAfterFirst })
+
+        // Third draw when only 10 unseen non-matching questions remain and all 20 grade-matched are seen:
+        // Unseen pool (q_21..q_30) comes first, and still excludes lastTestIds!
+        val seenAfterSecond = seenAfterFirst + secondTest.map { it.id }
+        val lastAfterSecond = secondTest.map { it.id }.toSet()
+        val thirdTest = QuestionSelector.selectQuestions(
+            pool = pool,
+            userGrade = 2,
+            requestedCount = 10,
+            seenIds = seenAfterSecond,
+            lastTestIds = lastAfterSecond,
+            random = Random(44)
+        )
+        assertEquals(10, thirdTest.size)
+        assertTrue(thirdTest.none { it.id in seenAfterSecond })
+        assertTrue(thirdTest.none { it.id in lastAfterSecond })
+
+        // Fourth draw after wraparound (seen = lastTestIds, so Priority 3 returns grade-matched NOT in lastTestIds)
+        val fourthTest = QuestionSelector.selectQuestions(
+            pool = pool,
+            userGrade = 2,
+            requestedCount = 10,
+            seenIds = lastAfterSecond,
+            lastTestIds = lastAfterSecond,
+            random = Random(45)
+        )
+        assertEquals(10, fourthTest.size)
+        assertTrue(fourthTest.none { it.id in lastAfterSecond })
+    }
+
+    @Test
+    fun builtInQuestionBank_isValidAcrossAllSubjectsAndGrades() {
+        val bank = BuiltInQuestionBank.questions
+        assertTrue("Expected at least 100 built-in questions, got ${bank.size}", bank.size >= 100)
+
+        // All IDs must be unique
+        val ids = bank.map { it.id }
+        assertEquals(ids.size, ids.toSet().size)
+
+        // Every question must have 4 options, valid answer index, and valid grade bounds
+        for (q in bank) {
+            assertEquals("Question ${q.id} should have 4 options", 4, q.options.size)
+            assertTrue("Question ${q.id} has invalid correctIndex", q.correctIndex in 0..3)
+            assertTrue("Question ${q.id} has blank text", q.questionText.isNotBlank())
+            assertTrue("Question ${q.id} has invalid grades", q.minGrade in 1..12 && q.maxGrade in q.minGrade..12)
+        }
+
+        // All 11 subjects must have questions
+        for (category in QuestionCategory.entries) {
+            val count = bank.count { it.category == category }
+            assertTrue("Subject ${category.displayName} should have >= 8 questions, found $count", count >= 8)
+        }
+
+        // Every grade 1..12 must have >= 30 directly matching questions
+        for (grade in 1..12) {
+            val gradeCount = bank.count { it.matchesGrade(grade) }
+            assertTrue("Grade $grade should have >= 30 questions, found $gradeCount", gradeCount >= 30)
+        }
+    }
+
+    @Test
+    fun localization_supportsMultipleLanguagesWithDistinctStrings() {
+        val english = AppStrings.forLanguage("English")
+        val hindi = AppStrings.forLanguage("Hindi")
+        val odia = AppStrings.forLanguage("Odia")
+        val spanish = AppStrings.forLanguage("Spanish")
+
+        assertEquals("English", LanguageCatalog.normalize(null))
+        assertEquals("Hindi", LanguageCatalog.normalize("हिन्दी"))
+        assertEquals("Odia", LanguageCatalog.normalize("odia"))
+
+        assertTrue(LanguageCatalog.languages.size >= 9)
+        assertNotEquals(english.navHome, hindi.navHome)
+        assertNotEquals(english.navHome, odia.navHome)
+        assertNotEquals(english.navHome, spanish.navHome)
+        assertTrue(hindi.geminiSignInButton.isNotBlank())
+        assertTrue(odia.selectLanguageLabel.isNotBlank())
     }
 }

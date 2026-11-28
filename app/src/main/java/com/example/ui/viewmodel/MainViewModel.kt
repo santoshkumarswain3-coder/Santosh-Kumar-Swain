@@ -1,6 +1,5 @@
 package com.example.ui.viewmodel
 
-import android.graphics.Bitmap
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -12,6 +11,7 @@ import com.example.R
 import com.example.data.BuiltInQuestionBank
 import com.example.data.model.ChatMessage
 import com.example.data.model.FriendRequest
+import com.example.data.model.GradeCatalog
 import com.example.data.model.LeaderboardEntry
 import com.example.data.model.QuestionCategory
 import com.example.data.model.QuizQuestion
@@ -22,7 +22,10 @@ import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.AiTutorRepository
 import com.example.data.repository.BrightQuizRepository
-import com.example.data.repository.bitmapToCompressedBase64
+import com.example.data.repository.GeminiAuthException
+import com.example.data.repository.GeminiSessionStore
+import com.example.data.repository.QuestionSelector
+import com.example.data.repository.SeenQuestionsStore
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.CancellationException
@@ -34,7 +37,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,21 +54,12 @@ data class ActiveTestSession(
     val isSubmittingResult: Boolean = false
 )
 
-sealed interface AiImageState {
-    data object Idle : AiImageState
-    data object Loading : AiImageState
-    data class Success(val bitmap: Bitmap, val base64: String) : AiImageState
-    data class Error(val message: String) : AiImageState
-}
-
 data class AskTabState(
-    val messages: List<ChatMessage> = listOf(
-        ChatMessage(
-            id = "welcome",
-            fromUser = false,
-            text = "Hi! I am your BrightQuiz Study Tutor. Ask me anything about your tests, textbooks, science, history, geography, or GK! Ask 5 study questions/day (+15 coins), 25/week (+75 coins), or 50/month (+100 coins)."
-        )
-    ),
+    val isGeminiSignedIn: Boolean = false,
+    val geminiAccountLabel: String = "Gemini Account",
+    val isVerifyingSignIn: Boolean = false,
+    val signInError: String? = null,
+    val messages: List<ChatMessage> = emptyList(),
     val isStreaming: Boolean = false,
     val streamingText: String = "",
     val errorMessage: String? = null,
@@ -76,6 +69,8 @@ data class AskTabState(
 class MainViewModel(
     private val repository: BrightQuizRepository,
     private val aiRepository: AiTutorRepository,
+    private val geminiSessionStore: GeminiSessionStore,
+    private val seenQuestionsStore: SeenQuestionsStore,
     val currentUserId: String
 ) : ViewModel() {
 
@@ -125,11 +120,13 @@ class MainViewModel(
     private val _activeTest = MutableStateFlow<ActiveTestSession?>(null)
     val activeTest: StateFlow<ActiveTestSession?> = _activeTest.asStateFlow()
 
-    private val _askState = MutableStateFlow(AskTabState())
+    private val _askState = MutableStateFlow(
+        AskTabState(
+            isGeminiSignedIn = geminiSessionStore.isSignedIn(),
+            geminiAccountLabel = geminiSessionStore.getAccountLabel()
+        )
+    )
     val askState: StateFlow<AskTabState> = _askState.asStateFlow()
-
-    private val _aiImageState = MutableStateFlow<AiImageState>(AiImageState.Idle)
-    val aiImageState: StateFlow<AiImageState> = _aiImageState.asStateFlow()
 
     private val _actionFeedback = MutableStateFlow<String?>(null)
     val actionFeedback: StateFlow<String?> = _actionFeedback.asStateFlow()
@@ -143,12 +140,46 @@ class MainViewModel(
         _actionFeedback.value = null
     }
 
-    fun resetAiImageState() {
-        _aiImageState.value = AiImageState.Idle
-    }
-
     fun clearBonusBanner() {
         _askState.value = _askState.value.copy(latestBonusMessage = null)
+    }
+
+    fun signInToGemini(apiKey: String, accountLabel: String) {
+        val trimmedKey = apiKey.trim()
+        if (trimmedKey.isEmpty() || _askState.value.isVerifyingSignIn) return
+        viewModelScope.launch {
+            _askState.value = _askState.value.copy(
+                isVerifyingSignIn = true,
+                signInError = null
+            )
+            val result = aiRepository.verifyGeminiKey(trimmedKey)
+            result.onSuccess {
+                val label = accountLabel.trim().ifBlank { "Gemini Connected" }
+                geminiSessionStore.saveSignIn(trimmedKey, label)
+                _askState.value = _askState.value.copy(
+                    isGeminiSignedIn = true,
+                    geminiAccountLabel = label,
+                    isVerifyingSignIn = false,
+                    signInError = null,
+                    errorMessage = null
+                )
+            }.onFailure { err ->
+                _askState.value = _askState.value.copy(
+                    isVerifyingSignIn = false,
+                    signInError = err.localizedMessage ?: "Could not verify Gemini sign-in."
+                )
+            }
+        }
+    }
+
+    fun signOutGemini() {
+        geminiSessionStore.signOut()
+        _askState.value = _askState.value.copy(
+            isGeminiSignedIn = false,
+            geminiAccountLabel = "Gemini Account",
+            signInError = null,
+            errorMessage = null
+        )
     }
 
     fun completeRegistration(
@@ -156,6 +187,7 @@ class MainViewModel(
         phoneNumber: String,
         email: String,
         studentName: String,
+        grade: String,
         schoolName: String,
         studyPasscode: String,
         avatarBase64: String?
@@ -167,6 +199,7 @@ class MainViewModel(
                 phoneNumber = phoneNumber,
                 email = email,
                 studentName = studentName,
+                grade = grade,
                 schoolName = schoolName,
                 studyPasscode = studyPasscode,
                 avatarBase64 = avatarBase64
@@ -178,10 +211,22 @@ class MainViewModel(
         }
     }
 
-    fun updateProfile(studentName: String, schoolName: String, avatarBase64: String?) {
+    fun updateProfile(
+        studentName: String,
+        schoolName: String,
+        grade: String,
+        language: String,
+        avatarBase64: String?
+    ) {
         viewModelScope.launch {
             _isBusy.value = true
-            val result = repository.updateProfileDetails(studentName, schoolName, avatarBase64)
+            val result = repository.updateProfileDetails(
+                studentName = studentName,
+                schoolName = schoolName,
+                grade = grade,
+                language = language,
+                avatarBase64 = avatarBase64
+            )
             _isBusy.value = false
             result.onSuccess {
                 _actionFeedback.value = "Profile updated!"
@@ -191,35 +236,10 @@ class MainViewModel(
         }
     }
 
-    fun generateAiAvatar(prompt: String) {
-        viewModelScope.launch {
-            _aiImageState.value = AiImageState.Loading
-            val res = aiRepository.generateAvatarBitmap(prompt)
-            res.onSuccess { bmp ->
-                val b64 = bitmapToCompressedBase64(bmp, maxDimension = 320, quality = 76)
-                _aiImageState.value = AiImageState.Success(bmp, b64)
-            }.onFailure { err ->
-                _aiImageState.value = AiImageState.Error(err.localizedMessage ?: "AI avatar generation failed.")
-            }
-        }
-    }
-
-    fun generateCurrentAffairsImage(prompt: String) {
-        viewModelScope.launch {
-            _aiImageState.value = AiImageState.Loading
-            val res = aiRepository.generateCurrentAffairsBitmap(prompt)
-            res.onSuccess { bmp ->
-                val b64 = bitmapToCompressedBase64(bmp, maxDimension = 420, quality = 74)
-                _aiImageState.value = AiImageState.Success(bmp, b64)
-            }.onFailure { err ->
-                _aiImageState.value = AiImageState.Error(err.localizedMessage ?: "Illustration generation failed.")
-            }
-        }
-    }
-
     fun uploadCustomQuestion(
         authorName: String,
         category: QuestionCategory,
+        targetGrade: Int,
         questionText: String,
         options: List<String>,
         correctIndex: Int,
@@ -232,6 +252,7 @@ class MainViewModel(
             val res = repository.uploadQuestion(
                 authorName = authorName,
                 category = category,
+                targetGrade = targetGrade,
                 questionText = questionText,
                 options = options,
                 correctIndex = correctIndex,
@@ -250,21 +271,31 @@ class MainViewModel(
 
     fun startTest(testType: TestType, categoryFilter: QuestionCategory? = null) {
         val pool = allQuestions.value
-        val filtered = if (categoryFilter != null) {
-            val catList = pool.filter { it.category == categoryFilter }
-            if (catList.isNotEmpty()) catList else pool
-        } else if (testType == TestType.PRACTICE) {
-            // Put picture questions and uploaded questions first for engaging practice
-            pool.sortedByDescending { it.localImageRes != null || !it.imageBase64.isNullOrBlank() }
-        } else {
-            pool.shuffled()
-        }
+        val profile = (userProfileState.value as? UiState.Success)?.data
+        val studentGrade = GradeCatalog.parseGradeNumber(profile?.grade)
 
-        val selected = filtered.take(testType.questionCount.coerceAtMost(filtered.size))
+        val selected = QuestionSelector.selectQuestions(
+            pool = pool,
+            userGrade = studentGrade,
+            requestedCount = testType.questionCount,
+            categoryFilter = categoryFilter,
+            preferPicturesFirst = testType == TestType.PRACTICE && categoryFilter == null,
+            seenIds = seenQuestionsStore.getSeenIds(),
+            lastTestIds = seenQuestionsStore.getLastTestIds()
+        )
         if (selected.isEmpty()) {
             _actionFeedback.value = "No questions available yet."
             return
         }
+
+        val fullScopeIds = if (categoryFilter != null) {
+            pool.filter { it.category == categoryFilter }.map { it.id }.toSet().ifEmpty {
+                pool.map { it.id }.toSet()
+            }
+        } else {
+            pool.map { it.id }.toSet()
+        }
+        seenQuestionsStore.recordServed(selected.map { it.id }, fullScopeIds)
 
         timerJob?.cancel()
         _activeTest.value = ActiveTestSession(
@@ -405,7 +436,18 @@ class MainViewModel(
     fun askStudyQuestion(questionText: String) {
         val trimmed = questionText.trim()
         if (trimmed.isEmpty() || _askState.value.isStreaming) return
+        val apiKey = geminiSessionStore.getApiKey()
+        if (apiKey.isNullOrBlank()) {
+            _askState.value = _askState.value.copy(
+                isGeminiSignedIn = false,
+                signInError = "Please sign in to Gemini first to ask study questions."
+            )
+            return
+        }
+
         val profile = (userProfileState.value as? UiState.Success)?.data
+        val studentGrade = GradeCatalog.normalizeGrade(profile?.grade)
+        val studentLanguage = profile?.language?.ifBlank { "English" } ?: "English"
 
         val userMsg = ChatMessage(
             id = UUID.randomUUID().toString(),
@@ -428,7 +470,13 @@ class MainViewModel(
         viewModelScope.launch {
             var finalReply = ""
             try {
-                aiRepository.askStudyTutorStream(trimmed, historyPairs).collect { partial ->
+                aiRepository.askStudyTutorStream(
+                    apiKey = apiKey,
+                    question = trimmed,
+                    recentHistory = historyPairs,
+                    studentGrade = studentGrade,
+                    preferredLanguage = studentLanguage
+                ).collect { partial ->
                     finalReply = partial
                     val cleanPreview = partial.removePrefix("[OFF_TOPIC]").trimStart()
                     _askState.value = _askState.value.copy(streamingText = cleanPreview)
@@ -439,7 +487,7 @@ class MainViewModel(
                 val aiMsg = ChatMessage(
                     id = UUID.randomUUID().toString(),
                     fromUser = false,
-                    text = cleanReply.ifEmpty { "Please ask a question about your tests, books, or studies." },
+                    text = cleanReply.ifEmpty { "Please ask a question about your books, studies, or tests." },
                     offTopic = isOffTopic
                 )
 
@@ -461,12 +509,21 @@ class MainViewModel(
                 )
             } catch (e: CancellationException) {
                 throw e
+            } catch (e: GeminiAuthException) {
+                Log.w(TAG, "Gemini authentication expired or invalid", e)
+                geminiSessionStore.signOut()
+                _askState.value = _askState.value.copy(
+                    isGeminiSignedIn = false,
+                    isStreaming = false,
+                    streamingText = "",
+                    signInError = e.localizedMessage ?: "Your Gemini key was rejected. Please sign in to Gemini again."
+                )
             } catch (e: Exception) {
-                Log.e(TAG, "Study Tutor error", e)
+                Log.e(TAG, "Gemini Study Tutor error", e)
                 _askState.value = _askState.value.copy(
                     isStreaming = false,
                     streamingText = "",
-                    errorMessage = e.localizedMessage ?: "Unable to reach Study Tutor right now."
+                    errorMessage = e.localizedMessage ?: "Unable to reach Gemini right now."
                 )
             }
         }
@@ -512,6 +569,8 @@ class MainViewModel(
                 MainViewModel(
                     repository = BrightQuizRepository(db),
                     aiRepository = AiTutorRepository(),
+                    geminiSessionStore = GeminiSessionStore(app),
+                    seenQuestionsStore = SeenQuestionsStore(app, currentUserId),
                     currentUserId = currentUserId
                 )
             }

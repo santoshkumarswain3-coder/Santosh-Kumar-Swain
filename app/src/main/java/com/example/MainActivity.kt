@@ -53,7 +53,6 @@ import androidx.core.content.ContextCompat
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.data.firebase.configureAppCheck
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.data.repository.attemptAutoSignIn
@@ -72,6 +71,7 @@ import com.example.ui.screens.StudentRegistrationWizard
 import com.example.ui.screens.TestRunnerScreen
 import com.example.ui.theme.BrightQuizTheme
 import com.example.ui.viewmodel.MainViewModel
+import com.example.util.AppStrings
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
@@ -84,9 +84,6 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Mandatory Step 1: Configure App Check with launch intent before setContent / ViewModels
-        configureAppCheck(this, intent)
 
         // Ensure 7:30 PM daily, Sunday weekly, and month-end monthly notifications are scheduled
         QuizNotificationScheduler.ensureChannelAndScheduleAll(this)
@@ -170,7 +167,6 @@ private fun AuthenticatedShell(
     val allQuestions by viewModel.allQuestions.collectAsStateWithLifecycle()
     val activeTest by viewModel.activeTest.collectAsStateWithLifecycle()
     val askState by viewModel.askState.collectAsStateWithLifecycle()
-    val aiImageState by viewModel.aiImageState.collectAsStateWithLifecycle()
     val isBusy by viewModel.isBusy.collectAsStateWithLifecycle()
     val actionFeedback by viewModel.actionFeedback.collectAsStateWithLifecycle()
 
@@ -228,11 +224,8 @@ private fun AuthenticatedShell(
                 StudentRegistrationWizard(
                     defaultEmail = firebaseUser.email.orEmpty(),
                     defaultName = firebaseUser.displayName.orEmpty(),
-                    aiImageState = aiImageState,
                     isBusy = isBusy,
                     errorBanner = actionFeedback,
-                    onGenerateAiAvatar = viewModel::generateAiAvatar,
-                    onResetAiImage = viewModel::resetAiImageState,
                     onSubmitRegistration = viewModel::completeRegistration
                 )
             } else {
@@ -245,7 +238,6 @@ private fun AuthenticatedShell(
                     allQuestions = allQuestions,
                     activeTest = activeTest,
                     askState = askState,
-                    aiImageState = aiImageState,
                     isBusy = isBusy,
                     snackbarHostState = snackbarHostState,
                     onSignOut = onSignOut
@@ -265,12 +257,12 @@ private fun MainAuthorizedTabs(
     allQuestions: List<com.example.data.model.QuizQuestion>,
     activeTest: com.example.ui.viewmodel.ActiveTestSession?,
     askState: com.example.ui.viewmodel.AskTabState,
-    aiImageState: com.example.ui.viewmodel.AiImageState,
     isBusy: Boolean,
     snackbarHostState: SnackbarHostState,
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
+    val strings = remember(profile.language) { AppStrings.forLanguage(profile.language) }
     var selectedTab by remember { mutableIntStateOf(0) }
     var showProfileScreen by remember { mutableStateOf(false) }
     var profileInitialTab by remember { mutableIntStateOf(0) }
@@ -300,7 +292,6 @@ private fun MainAuthorizedTabs(
         }
     }
 
-    // Full-screen Test Runner takes precedence
     if (activeTest != null) {
         TestRunnerScreen(
             session = activeTest,
@@ -316,13 +307,11 @@ private fun MainAuthorizedTabs(
             profile = profile,
             leaderboardState = leaderboardState,
             friendRequestsState = friendRequestsState,
-            aiImageState = aiImageState,
             isBusy = isBusy,
             initialTab = profileInitialTab,
+            strings = strings,
             onBack = { showProfileScreen = false },
             onUpdateProfile = viewModel::updateProfile,
-            onGenerateAiAvatar = viewModel::generateAiAvatar,
-            onResetAiImage = viewModel::resetAiImageState,
             onSendFriendRequest = viewModel::sendFriendRequest,
             onRespondFriendRequest = viewModel::respondToFriendRequest,
             onSignOut = onSignOut
@@ -335,11 +324,11 @@ private fun MainAuthorizedTabs(
         topBar = {
             BrightQuizTopBar(
                 profile = profile,
+                profileLabel = strings.profileButton,
                 onCoinsClick = { showLevelsDialog = true },
                 onLevelClick = { showLevelsDialog = true },
                 onProfileClick = {
                     profileInitialTab = 0
-                    viewModel.resetAiImageState()
                     showProfileScreen = true
                 }
             )
@@ -354,10 +343,10 @@ private fun MainAuthorizedTabs(
                     icon = {
                         Icon(
                             imageVector = if (selectedTab == 0) Icons.Filled.Home else Icons.Outlined.Home,
-                            contentDescription = "Home"
+                            contentDescription = strings.navHome
                         )
                     },
-                    label = { Text("Home") },
+                    label = { Text(strings.navHome) },
                     modifier = Modifier.testTag("bottom_nav_home")
                 )
                 NavigationBarItem(
@@ -366,10 +355,10 @@ private fun MainAuthorizedTabs(
                     icon = {
                         Icon(
                             imageVector = if (selectedTab == 1) Icons.Filled.AutoAwesome else Icons.Outlined.AutoAwesome,
-                            contentDescription = "Ask"
+                            contentDescription = strings.navAsk
                         )
                     },
-                    label = { Text("Ask") },
+                    label = { Text(strings.navAsk) },
                     modifier = Modifier.testTag("bottom_nav_ask")
                 )
                 NavigationBarItem(
@@ -378,10 +367,10 @@ private fun MainAuthorizedTabs(
                     icon = {
                         Icon(
                             imageVector = if (selectedTab == 2) Icons.Filled.History else Icons.Outlined.History,
-                            contentDescription = "History"
+                            contentDescription = strings.navHistory
                         )
                     },
-                    label = { Text("History") },
+                    label = { Text(strings.navHistory) },
                     modifier = Modifier.testTag("bottom_nav_history")
                 )
             }
@@ -396,15 +385,14 @@ private fun MainAuthorizedTabs(
                 0 -> HomeScreen(
                     profile = profile,
                     allQuestions = allQuestions,
-                    aiImageState = aiImageState,
                     isBusy = isBusy,
+                    strings = strings,
                     onStartTest = viewModel::startTest,
-                    onGenerateQuestionImage = viewModel::generateCurrentAffairsImage,
-                    onResetAiImage = viewModel::resetAiImageState,
-                    onUploadQuestion = { category, qText, opts, correctIdx, explanation, imgB64, onDone ->
+                    onUploadQuestion = { category, targetGrade, qText, opts, correctIdx, explanation, imgB64, onDone ->
                         viewModel.uploadCustomQuestion(
                             authorName = profile.studentName,
                             category = category,
+                            targetGrade = targetGrade,
                             questionText = qText,
                             options = opts,
                             correctIndex = correctIdx,
@@ -417,6 +405,9 @@ private fun MainAuthorizedTabs(
                 1 -> AskAiScreen(
                     profile = profile,
                     askState = askState,
+                    strings = strings,
+                    onSignInToGemini = viewModel::signInToGemini,
+                    onSignOutGemini = viewModel::signOutGemini,
                     onSendQuestion = viewModel::askStudyQuestion
                 )
                 else -> HistoryScreen(

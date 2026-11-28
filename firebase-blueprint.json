@@ -10,6 +10,8 @@
         "phoneNumber": { "type": "string" },
         "email": { "type": "string" },
         "studentName": { "type": "string" },
+        "grade": { "type": "string" },
+        "language": { "type": "string" },
         "schoolName": { "type": "string" },
         "passcodeHash": { "type": "string" },
         "avatarBase64": { "type": "string" },
@@ -115,8 +117,21 @@
         "authorName": { "type": "string" },
         "category": {
           "type": "string",
-          "enum": ["CURRENT_AFFAIRS", "SCIENCE_SPACE", "GEOGRAPHY", "HISTORY_CIVICS", "SPORTS_ARTS", "GENERAL"]
+          "enum": [
+            "CURRENT_AFFAIRS",
+            "SCIENCE_SPACE",
+            "MATHEMATICS",
+            "ENGLISH_LITERATURE",
+            "GEOGRAPHY",
+            "HISTORY_CIVICS",
+            "COMPUTER_TECH",
+            "ENVIRONMENT_NATURE",
+            "SPORTS_ARTS",
+            "LOGICAL_REASONING",
+            "GENERAL"
+          ]
         },
+        "targetGrade": { "type": "integer" },
         "questionText": { "type": "string" },
         "options": { "type": "array" },
         "correctIndex": { "type": "integer" },

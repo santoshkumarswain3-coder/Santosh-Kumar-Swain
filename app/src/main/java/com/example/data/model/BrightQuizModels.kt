@@ -40,22 +40,39 @@ enum class TestType(
         questionCount = 15,
         durationSeconds = 0,
         coinReward = 0,
-        subtitle = "Untimed • Current Affairs & Images"
+        subtitle = "Untimed • Subject & Picture MCQs"
     )
 }
 
 enum class QuestionCategory(val displayName: String) {
     CURRENT_AFFAIRS("Current Affairs"),
     SCIENCE_SPACE("Science & Space"),
+    MATHEMATICS("Mathematics"),
+    ENGLISH_LITERATURE("English & Books"),
     GEOGRAPHY("Geography"),
     HISTORY_CIVICS("History & Civics"),
+    COMPUTER_TECH("Computer & Tech"),
+    ENVIRONMENT_NATURE("Environment & Nature"),
     SPORTS_ARTS("Sports & Arts"),
+    LOGICAL_REASONING("Logical Reasoning"),
     GENERAL("General Knowledge");
 
     companion object {
         fun fromRaw(raw: String): QuestionCategory =
             entries.firstOrNull { it.name == raw } ?: GENERAL
     }
+}
+
+object GradeCatalog {
+    val grades: List<String> = (1..12).map { "Grade $it" }
+
+    fun parseGradeNumber(raw: String?): Int {
+        if (raw.isNullOrBlank()) return 5
+        val digits = raw.filter { it.isDigit() }.toIntOrNull()
+        return (digits ?: 5).coerceIn(1, 12)
+    }
+
+    fun normalizeGrade(raw: String?): String = "Grade ${parseGradeNumber(raw)}"
 }
 
 data class LevelTier(
@@ -108,10 +125,20 @@ data class QuizQuestion(
     val options: List<String>,
     val correctIndex: Int,
     val explanation: String,
+    val minGrade: Int = 1,
+    val maxGrade: Int = 12,
     @DrawableRes val localImageRes: Int? = null,
     val imageBase64: String? = null,
     val authorName: String = "BrightQuiz Editorial"
-)
+) {
+    fun matchesGrade(gradeNumber: Int): Boolean = gradeNumber in minGrade..maxGrade
+
+    fun gradeDistance(gradeNumber: Int): Int = when {
+        gradeNumber < minGrade -> minGrade - gradeNumber
+        gradeNumber > maxGrade -> gradeNumber - maxGrade
+        else -> 0
+    }
+}
 
 @Keep
 @IgnoreExtraProperties
@@ -122,6 +149,8 @@ data class UserProfile(
     val phoneNumber: String = "",
     val email: String = "",
     val studentName: String = "",
+    val grade: String = "Grade 5",
+    val language: String = "English",
     val schoolName: String = "",
     val passcodeHash: String? = null,
     val avatarBase64: String? = null,
@@ -179,6 +208,7 @@ data class SharedQuestion(
     val authorId: String = "",
     val authorName: String = "",
     val category: String = QuestionCategory.GENERAL.name,
+    val targetGrade: Int = 0,
     val questionText: String = "",
     val options: List<String> = emptyList(),
     val correctIndex: Int = 0,
@@ -190,6 +220,8 @@ data class SharedQuestion(
 ) {
     fun toQuizQuestion(): QuizQuestion? {
         if (questionText.isBlank() || options.size != 4 || correctIndex !in 0..3) return null
+        val minG = if (targetGrade in 1..12) (targetGrade - 1).coerceAtLeast(1) else 1
+        val maxG = if (targetGrade in 1..12) (targetGrade + 1).coerceAtMost(12) else 12
         return QuizQuestion(
             id = id.ifBlank { questionText.hashCode().toString() },
             category = QuestionCategory.fromRaw(category),
@@ -197,6 +229,8 @@ data class SharedQuestion(
             options = options,
             correctIndex = correctIndex,
             explanation = explanation,
+            minGrade = minG,
+            maxGrade = maxG,
             localImageRes = null,
             imageBase64 = imageBase64,
             authorName = authorName.ifBlank { "Community" }

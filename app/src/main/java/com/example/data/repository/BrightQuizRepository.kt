@@ -171,6 +171,7 @@ class BrightQuizRepository(
         phoneNumber: String,
         email: String,
         studentName: String,
+        grade: String,
         schoolName: String,
         studyPasscode: String,
         avatarBase64: String?
@@ -182,6 +183,7 @@ class BrightQuizRepository(
             val cleanPhone = phoneNumber.trim().take(25)
             val cleanEmail = email.trim().take(120)
             val cleanName = studentName.trim().take(60)
+            val cleanGrade = com.example.data.model.GradeCatalog.normalizeGrade(grade).take(30)
             val cleanSchool = schoolName.trim().take(100)
             require(cleanCountry.length >= 2) { "Please select your country." }
             require(cleanPhone.length >= 5) { "Please enter a valid phone number." }
@@ -201,6 +203,8 @@ class BrightQuizRepository(
                 "phoneNumber" to cleanPhone,
                 "email" to cleanEmail,
                 "studentName" to cleanName,
+                "grade" to cleanGrade,
+                "language" to "English",
                 "schoolName" to cleanSchool,
                 "passcodeHash" to passcodeHash,
                 "avatarBase64" to safeAvatar,
@@ -251,6 +255,8 @@ class BrightQuizRepository(
     suspend fun updateProfileDetails(
         studentName: String,
         schoolName: String,
+        grade: String,
+        language: String,
         avatarBase64: String?
     ): Result<Unit> {
         var path = "users"
@@ -258,6 +264,8 @@ class BrightQuizRepository(
             val uid = requireUserId()
             val cleanName = studentName.trim().take(60)
             val cleanSchool = schoolName.trim().take(100)
+            val cleanGrade = com.example.data.model.GradeCatalog.normalizeGrade(grade).take(30)
+            val cleanLang = com.example.util.LanguageCatalog.normalize(language).take(40)
             require(cleanName.isNotEmpty()) { "Student name cannot be empty." }
             require(cleanSchool.isNotEmpty()) { "School name cannot be empty." }
             val safeAvatar = avatarBase64?.takeIf { it.length <= 250_000 }
@@ -265,6 +273,8 @@ class BrightQuizRepository(
             val userUpdates = mutableMapOf<String, Any>(
                 "studentName" to cleanName,
                 "schoolName" to cleanSchool,
+                "grade" to cleanGrade,
+                "language" to cleanLang,
                 "updatedAt" to FieldValue.serverTimestamp()
             )
             val lbUpdates = mutableMapOf<String, Any>(
@@ -449,6 +459,7 @@ class BrightQuizRepository(
     suspend fun uploadQuestion(
         authorName: String,
         category: QuestionCategory,
+        targetGrade: Int,
         questionText: String,
         options: List<String>,
         correctIndex: Int,
@@ -461,6 +472,7 @@ class BrightQuizRepository(
             val cleanQuestion = questionText.trim().take(400)
             val cleanOptions = options.map { it.trim().take(150) }
             val cleanExplanation = explanation.trim().take(400)
+            val safeTargetGrade = targetGrade.coerceIn(0, 12)
             require(cleanQuestion.length >= 5) { "Question must be at least 5 characters." }
             require(cleanOptions.size == 4 && cleanOptions.all { it.isNotEmpty() }) {
                 "All 4 answer options are required."
@@ -474,6 +486,7 @@ class BrightQuizRepository(
                 "authorId" to uid,
                 "authorName" to authorName.trim().ifEmpty { "Student" }.take(60),
                 "category" to category.name,
+                "targetGrade" to safeTargetGrade,
                 "questionText" to cleanQuestion,
                 "options" to cleanOptions,
                 "correctIndex" to correctIndex,

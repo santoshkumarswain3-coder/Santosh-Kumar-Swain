@@ -141,6 +141,7 @@ fun AvatarImage(
 @Composable
 fun BrightQuizTopBar(
     profile: UserProfile,
+    profileLabel: String = "Profile",
     onCoinsClick: () -> Unit,
     onLevelClick: () -> Unit,
     onProfileClick: () -> Unit
@@ -251,7 +252,7 @@ fun BrightQuizTopBar(
                     )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Profile",
+                        text = profileLabel,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurface
                     )

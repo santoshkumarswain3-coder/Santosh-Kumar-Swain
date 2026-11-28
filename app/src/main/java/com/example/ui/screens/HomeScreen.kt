@@ -27,19 +27,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CalendarViewWeek
+import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Eco
+import androidx.compose.material.icons.filled.HistoryEdu
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Newspaper
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -70,6 +77,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.example.R
+import com.example.data.model.GradeCatalog
 import com.example.data.model.QuestionCategory
 import com.example.data.model.QuizQuestion
 import com.example.data.model.TestType
@@ -82,20 +90,19 @@ import com.example.ui.theme.OnSunnyGold
 import com.example.ui.theme.SkyAccent
 import com.example.ui.theme.SunnyGold
 import com.example.ui.theme.SunnyGoldLight
-import com.example.ui.viewmodel.AiImageState
+import com.example.util.AppStrings
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     profile: UserProfile,
     allQuestions: List<QuizQuestion>,
-    aiImageState: AiImageState,
     isBusy: Boolean,
+    strings: AppStrings = AppStrings.forLanguage(profile.language),
     onStartTest: (TestType, QuestionCategory?) -> Unit,
-    onGenerateQuestionImage: (String) -> Unit,
-    onResetAiImage: () -> Unit,
     onUploadQuestion: (
         category: QuestionCategory,
+        targetGrade: Int,
         questionText: String,
         options: List<String>,
         correctIndex: Int,
@@ -105,6 +112,7 @@ fun HomeScreen(
     ) -> Unit
 ) {
     var showUploadDialog by remember { mutableStateOf(false) }
+    val userGrade = GradeCatalog.normalizeGrade(profile.grade)
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -121,7 +129,7 @@ fun HomeScreen(
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Image(
                         painter = painterResource(id = R.drawable.img_hero_gk),
-                        contentDescription = "GK and Current Affairs Hero Banner",
+                        contentDescription = "GK and Subject Quiz Hero Banner",
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(172.dp),
@@ -150,7 +158,7 @@ fun HomeScreen(
                             color = SunnyGold
                         ) {
                             Text(
-                                text = "${allQuestions.size} GK & Current Affairs MCQs Ready",
+                                text = "$userGrade • ${allQuestions.size} Fresh MCQs Ready",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = OnSunnyGold,
@@ -164,7 +172,7 @@ fun HomeScreen(
                             color = Color.White
                         )
                         Text(
-                            text = "Score 60%+ in tests to win coins & Monthly Pass Certificates.",
+                            text = "Unique $userGrade questions in every test • Win Monthly Pass Certificates.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFFE2E8F0)
                         )
@@ -176,7 +184,7 @@ fun HomeScreen(
         // Timed Tests Section
         item {
             Text(
-                text = "Timed GK & Current Affairs Tests",
+                text = strings.timedTestsHeader,
                 style = MaterialTheme.typography.titleLarge
             )
         }
@@ -213,10 +221,10 @@ fun HomeScreen(
             }
         }
 
-        // Practice Current Affairs & Picture Questions
+        // Practice by Subject & Pictures
         item {
             Text(
-                text = "Practice with Current Affairs & Pictures",
+                text = strings.subjectsHeader,
                 style = MaterialTheme.typography.titleLarge
             )
             Spacer(modifier = Modifier.height(8.dp))
@@ -252,7 +260,7 @@ fun HomeScreen(
                     }
                     Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "Explore untimed Current Affairs & Picture GK by topic:",
+                        text = strings.subjectsSubtitle,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -267,13 +275,19 @@ fun HomeScreen(
                         ) {
                             Icon(Icons.Filled.Newspaper, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
-                            Text("All Pictures & GK")
+                            Text("All Subjects & Pictures")
                         }
                         QuestionCategory.entries.forEach { category ->
                             OutlinedButton(
                                 onClick = { onStartTest(TestType.PRACTICE, category) },
                                 modifier = Modifier.testTag("practice_${category.name.lowercase()}")
                             ) {
+                                Icon(
+                                    imageVector = subjectIcon(category),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(17.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
                                 Text(category.displayName)
                             }
                         }
@@ -282,7 +296,7 @@ fun HomeScreen(
             }
         }
 
-        // Upload MCQ & Current Affairs Picture Question Card
+        // Upload MCQ & Picture Question Card
         item {
             Card(
                 shape = RoundedCornerShape(20.dp),
@@ -301,21 +315,18 @@ fun HomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(8.dp))
-                            Text("Upload MCQ & Picture", style = MaterialTheme.typography.titleMedium)
+                            Text(strings.uploadHeader, style = MaterialTheme.typography.titleMedium)
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Add new multiple choice questions and current affairs images for all students to practice.",
+                            text = "Add new multiple choice questions and subject pictures for students to practice.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Spacer(Modifier.width(12.dp))
                     Button(
-                        onClick = {
-                            onResetAiImage()
-                            showUploadDialog = true
-                        },
+                        onClick = { showUploadDialog = true },
                         modifier = Modifier.testTag("open_upload_question_button")
                     ) {
                         Icon(Icons.Filled.AddCircle, contentDescription = null)
@@ -329,18 +340,30 @@ fun HomeScreen(
 
     if (showUploadDialog) {
         UploadQuestionDialog(
-            aiImageState = aiImageState,
             isBusy = isBusy,
-            onGenerateAiImage = onGenerateQuestionImage,
-            onResetAiImage = onResetAiImage,
+            defaultGrade = GradeCatalog.parseGradeNumber(profile.grade),
             onDismiss = { showUploadDialog = false },
-            onSubmit = { category, qText, options, correctIdx, explanation, imgBase64 ->
-                onUploadQuestion(category, qText, options, correctIdx, explanation, imgBase64) {
+            onSubmit = { category, targetGrade, qText, options, correctIdx, explanation, imgBase64 ->
+                onUploadQuestion(category, targetGrade, qText, options, correctIdx, explanation, imgBase64) {
                     showUploadDialog = false
                 }
             }
         )
     }
+}
+
+private fun subjectIcon(category: QuestionCategory): ImageVector = when (category) {
+    QuestionCategory.CURRENT_AFFAIRS -> Icons.Filled.Newspaper
+    QuestionCategory.SCIENCE_SPACE -> Icons.Filled.Science
+    QuestionCategory.MATHEMATICS -> Icons.Filled.Calculate
+    QuestionCategory.ENGLISH_LITERATURE -> Icons.Filled.MenuBook
+    QuestionCategory.GEOGRAPHY -> Icons.Filled.Public
+    QuestionCategory.HISTORY_CIVICS -> Icons.Filled.HistoryEdu
+    QuestionCategory.COMPUTER_TECH -> Icons.Filled.Computer
+    QuestionCategory.ENVIRONMENT_NATURE -> Icons.Filled.Eco
+    QuestionCategory.SPORTS_ARTS -> Icons.Filled.SportsSoccer
+    QuestionCategory.LOGICAL_REASONING -> Icons.Filled.Psychology
+    QuestionCategory.GENERAL -> Icons.Filled.Lightbulb
 }
 
 @Composable
@@ -430,13 +453,12 @@ private fun TestModeCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UploadQuestionDialog(
-    aiImageState: AiImageState,
     isBusy: Boolean,
-    onGenerateAiImage: (String) -> Unit,
-    onResetAiImage: () -> Unit,
+    defaultGrade: Int,
     onDismiss: () -> Unit,
     onSubmit: (
         category: QuestionCategory,
+        targetGrade: Int,
         questionText: String,
         options: List<String>,
         correctIndex: Int,
@@ -446,6 +468,7 @@ private fun UploadQuestionDialog(
 ) {
     val context = LocalContext.current
     var category by remember { mutableStateOf(QuestionCategory.CURRENT_AFFAIRS) }
+    var targetGrade by remember { mutableIntStateOf(defaultGrade) }
     var questionText by remember { mutableStateOf("") }
     var optA by remember { mutableStateOf("") }
     var optB by remember { mutableStateOf("") }
@@ -454,19 +477,12 @@ private fun UploadQuestionDialog(
     var correctIdx by remember { mutableIntStateOf(0) }
     var explanation by remember { mutableStateOf("") }
     var imageBase64 by remember { mutableStateOf<String?>(null) }
-    var aiPicPrompt by remember { mutableStateOf("Solar-powered satellite orbiting Earth") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
-
-    val generatedBase64 = (aiImageState as? AiImageState.Success)?.base64
-    if (generatedBase64 != null && imageBase64 != generatedBase64) {
-        imageBase64 = generatedBase64
-    }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            onResetAiImage()
             imageBase64 = uriToCompressedBase64(context, uri, maxDimension = 420)
         }
     }
@@ -483,8 +499,9 @@ private fun UploadQuestionDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("Upload GK / Current Affairs MCQ", style = MaterialTheme.typography.headlineMedium)
+                Text("Upload Subject / GK MCQ", style = MaterialTheme.typography.headlineMedium)
 
+                Text("Subject", style = MaterialTheme.typography.labelLarge)
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -494,6 +511,25 @@ private fun UploadQuestionDialog(
                             selected = category == cat,
                             onClick = { category = cat },
                             label = { Text(cat.displayName) }
+                        )
+                    }
+                }
+
+                Text("Target Class", style = MaterialTheme.typography.labelLarge)
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = targetGrade == 0,
+                        onClick = { targetGrade = 0 },
+                        label = { Text("All Classes") }
+                    )
+                    (1..12).forEach { g ->
+                        FilterChip(
+                            selected = targetGrade == g,
+                            onClick = { targetGrade = g },
+                            label = { Text("Gr $g") }
                         )
                     }
                 }
@@ -540,8 +576,7 @@ private fun UploadQuestionDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // Current Affairs Picture Attachment
-                Text("Optional Current Affairs Picture", style = MaterialTheme.typography.titleMedium)
+                Text("Optional Subject Picture", style = MaterialTheme.typography.titleMedium)
                 val previewBmp = remember(imageBase64) { base64ToBitmap(imageBase64) }
                 if (previewBmp != null) {
                     Image(
@@ -555,52 +590,22 @@ private fun UploadQuestionDialog(
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = {
-                            photoPicker.launch(
-                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                            )
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("upload_gallery_image_button")
-                    ) {
-                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Gallery")
-                    }
-                    OutlinedButton(
-                        onClick = { onGenerateAiImage(aiPicPrompt) },
-                        enabled = aiImageState !is AiImageState.Loading,
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("upload_ai_image_button")
-                    ) {
-                        if (aiImageState is AiImageState.Loading) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                        }
-                        Spacer(Modifier.width(6.dp))
-                        Text("AI Art")
-                    }
+                OutlinedButton(
+                    onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("upload_gallery_image_button")
+                ) {
+                    Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Pick Picture from Gallery")
                 }
-                OutlinedTextField(
-                    value = aiPicPrompt,
-                    onValueChange = { aiPicPrompt = it },
-                    label = { Text("AI picture description") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
 
-                if (aiImageState is AiImageState.Error) {
-                    Text(
-                        text = aiImageState.message,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
                 if (errorMsg != null) {
                     Text(
                         text = errorMsg ?: "",
@@ -624,7 +629,7 @@ private fun UploadQuestionDialog(
                                 errorMsg = "Please fill in all 4 options."
                             } else {
                                 errorMsg = null
-                                onSubmit(category, questionText, opts, correctIdx, explanation, imageBase64)
+                                onSubmit(category, targetGrade, questionText, opts, correctIdx, explanation, imageBase64)
                             }
                         },
                         enabled = !isBusy,

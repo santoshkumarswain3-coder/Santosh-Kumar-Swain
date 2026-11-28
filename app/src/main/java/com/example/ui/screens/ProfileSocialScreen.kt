@@ -11,6 +11,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -27,7 +29,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -35,6 +36,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.GroupAdd
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.SupportAgent
@@ -43,6 +46,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -61,7 +65,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -69,6 +72,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.FriendRequest
+import com.example.data.model.GradeCatalog
 import com.example.data.model.LeaderboardEntry
 import com.example.data.model.LevelsCatalog
 import com.example.data.model.UiState
@@ -82,7 +86,8 @@ import com.example.ui.theme.OnEmeraldContainer
 import com.example.ui.theme.OnSunnyGold
 import com.example.ui.theme.SunnyGold
 import com.example.ui.theme.SunnyGoldLight
-import com.example.ui.viewmodel.AiImageState
+import com.example.util.AppStrings
+import com.example.util.LanguageCatalog
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -94,13 +99,17 @@ fun ProfileSocialScreen(
     profile: UserProfile,
     leaderboardState: UiState<List<LeaderboardEntry>>,
     friendRequestsState: UiState<List<FriendRequest>>,
-    aiImageState: AiImageState,
     isBusy: Boolean,
     initialTab: Int = 0,
+    strings: AppStrings = AppStrings.forLanguage(profile.language),
     onBack: () -> Unit,
-    onUpdateProfile: (name: String, school: String, avatarBase64: String?) -> Unit,
-    onGenerateAiAvatar: (String) -> Unit,
-    onResetAiImage: () -> Unit,
+    onUpdateProfile: (
+        name: String,
+        school: String,
+        grade: String,
+        language: String,
+        avatarBase64: String?
+    ) -> Unit,
     onSendFriendRequest: (LeaderboardEntry) -> Unit,
     onRespondFriendRequest: (String, Boolean) -> Unit,
     onSignOut: () -> Unit
@@ -108,7 +117,7 @@ fun ProfileSocialScreen(
     BackHandler(onBack = onBack)
 
     var selectedTab by remember(initialTab) { mutableIntStateOf(initialTab) }
-    val tabs = listOf("My Profile", "Leaderboard", "Friends")
+    val tabs = listOf(strings.tabMyProfile, strings.tabLeaderboard, strings.tabFriends)
 
     Column(
         modifier = Modifier
@@ -131,7 +140,7 @@ fun ProfileSocialScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
                 Text(
-                    text = "Profile & Community",
+                    text = strings.profileScreenTitle,
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.weight(1f)
                 )
@@ -152,11 +161,9 @@ fun ProfileSocialScreen(
         when (selectedTab) {
             0 -> MyProfileTab(
                 profile = profile,
-                aiImageState = aiImageState,
+                strings = strings,
                 isBusy = isBusy,
                 onUpdateProfile = onUpdateProfile,
-                onGenerateAiAvatar = onGenerateAiAvatar,
-                onResetAiImage = onResetAiImage,
                 onSignOut = onSignOut
             )
             1 -> LeaderboardTab(
@@ -174,14 +181,19 @@ fun ProfileSocialScreen(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MyProfileTab(
     profile: UserProfile,
-    aiImageState: AiImageState,
+    strings: AppStrings,
     isBusy: Boolean,
-    onUpdateProfile: (name: String, school: String, avatarBase64: String?) -> Unit,
-    onGenerateAiAvatar: (String) -> Unit,
-    onResetAiImage: () -> Unit,
+    onUpdateProfile: (
+        name: String,
+        school: String,
+        grade: String,
+        language: String,
+        avatarBase64: String?
+    ) -> Unit,
     onSignOut: () -> Unit
 ) {
     val context = LocalContext.current
@@ -189,20 +201,15 @@ private fun MyProfileTab(
 
     var editingName by remember(profile.studentName) { mutableStateOf(profile.studentName) }
     var editingSchool by remember(profile.schoolName) { mutableStateOf(profile.schoolName) }
+    var editingGrade by remember(profile.grade) { mutableStateOf(GradeCatalog.normalizeGrade(profile.grade)) }
+    var editingLanguage by remember(profile.language) { mutableStateOf(LanguageCatalog.normalize(profile.language)) }
     var draftAvatarBase64 by remember(profile.avatarBase64) { mutableStateOf(profile.avatarBase64) }
-    var aiAvatarPrompt by remember { mutableStateOf("Happy student scholar with golden stars") }
     var copiedNotice by remember { mutableStateOf(false) }
-
-    val generatedB64 = (aiImageState as? AiImageState.Success)?.base64
-    if (generatedB64 != null && draftAvatarBase64 != generatedB64) {
-        draftAvatarBase64 = generatedB64
-    }
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            onResetAiImage()
             val compressed = uriToCompressedBase64(context, uri, maxDimension = 320)
             if (compressed != null) {
                 draftAvatarBase64 = compressed
@@ -218,7 +225,7 @@ private fun MyProfileTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Profile Avatar & Edit Card
+        // Profile Avatar, Grade, Language & Edit Card
         item {
             Card(
                 shape = RoundedCornerShape(24.dp),
@@ -242,65 +249,29 @@ private fun MyProfileTab(
                         color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "${profile.country} • ${profile.phoneNumber}",
+                        text = "${profile.country} • ${profile.phoneNumber} • $editingGrade",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(14.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    OutlinedButton(
+                        onClick = {
+                            photoPicker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .testTag("edit_profile_gallery_button")
                     ) {
-                        OutlinedButton(
-                            onClick = {
-                                photoPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("edit_profile_gallery_button")
-                        ) {
-                            Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Gallery Photo")
-                        }
-                        OutlinedButton(
-                            onClick = { onGenerateAiAvatar(aiAvatarPrompt) },
-                            enabled = aiImageState !is AiImageState.Loading,
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("edit_profile_ai_avatar_button")
-                        ) {
-                            if (aiImageState is AiImageState.Loading) {
-                                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Filled.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                            }
-                            Spacer(Modifier.width(6.dp))
-                            Text("AI Picture")
-                        }
+                        Icon(Icons.Filled.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Pick Gallery Photo")
                     }
 
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        value = aiAvatarPrompt,
-                        onValueChange = { aiAvatarPrompt = it },
-                        label = { Text("AI Avatar Style") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (aiImageState is AiImageState.Error) {
-                        Spacer(Modifier.height(6.dp))
-                        Text(
-                            text = aiImageState.message,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
                     OutlinedTextField(
                         value = editingName,
                         onValueChange = { editingName = it },
@@ -320,9 +291,90 @@ private fun MyProfileTab(
                             .fillMaxWidth()
                             .testTag("edit_school_name_input")
                     )
+
                     Spacer(Modifier.height(14.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = strings.selectGradeLabel,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            GradeCatalog.grades.forEach { gradeOpt ->
+                                FilterChip(
+                                    selected = editingGrade == gradeOpt,
+                                    onClick = { editingGrade = gradeOpt },
+                                    label = { Text(gradeOpt) },
+                                    modifier = Modifier.testTag(
+                                        "profile_grade_${gradeOpt.lowercase().replace(" ", "_")}"
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Language,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = strings.selectLanguageLabel,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = "App navigation and Gemini Study Tutor replies will use your chosen language.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            LanguageCatalog.languages.forEach { langOpt ->
+                                FilterChip(
+                                    selected = editingLanguage == langOpt.englishName,
+                                    onClick = { editingLanguage = langOpt.englishName },
+                                    label = { Text(LanguageCatalog.displayLabel(langOpt.englishName)) },
+                                    modifier = Modifier.testTag(
+                                        "profile_language_${langOpt.code}"
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
                     Button(
-                        onClick = { onUpdateProfile(editingName, editingSchool, draftAvatarBase64) },
+                        onClick = {
+                            onUpdateProfile(
+                                editingName,
+                                editingSchool,
+                                editingGrade,
+                                editingLanguage,
+                                draftAvatarBase64
+                            )
+                        },
                         enabled = !isBusy,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -331,7 +383,7 @@ private fun MyProfileTab(
                     ) {
                         Icon(Icons.Filled.Edit, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text(if (isBusy) "Saving..." else "Save Profile Changes")
+                        Text(if (isBusy) "Saving..." else strings.saveProfileChanges)
                     }
                 }
             }
@@ -403,7 +455,7 @@ private fun MyProfileTab(
             ) {
                 Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Sign Out")
+                Text(strings.signOutLabel)
             }
         }
     }
@@ -555,7 +607,6 @@ private fun FriendsTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Incoming Requests
         if (incomingPending.isNotEmpty()) {
             item {
                 Text("Incoming Friend Requests", style = MaterialTheme.typography.titleLarge)
@@ -593,7 +644,6 @@ private fun FriendsTab(
             }
         }
 
-        // Accepted Friends
         item {
             Text("My Friends (${acceptedFriends.size})", style = MaterialTheme.typography.titleLarge)
         }
@@ -631,7 +681,6 @@ private fun FriendsTab(
             }
         }
 
-        // Add Friend Search & Directory
         item {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

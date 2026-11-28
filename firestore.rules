@@ -29,6 +29,8 @@ service cloud.firestore {
              data.phoneNumber is string && data.phoneNumber.size() >= 5 && data.phoneNumber.size() <= 25 &&
              data.email is string && data.email.size() >= 3 && data.email.size() <= 120 &&
              data.studentName is string && data.studentName.size() >= 1 && data.studentName.size() <= 60 &&
+             (!('grade' in data) || (data.grade is string && data.grade.size() >= 1 && data.grade.size() <= 30)) &&
+             (!('language' in data) || (data.language is string && data.language.size() >= 1 && data.language.size() <= 40)) &&
              data.schoolName is string && data.schoolName.size() >= 1 && data.schoolName.size() <= 100 &&
              data.coins is int && data.coins >= 0 && data.coins <= 100000000 &&
              data.dailyAskCount is int && data.dailyAskCount >= 0 && data.dailyAskCount <= 10000 &&
@@ -76,7 +78,12 @@ service cloud.firestore {
     function isValidQuestion(data) {
       return data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
              data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 60 &&
-             data.category is string && data.category in ['CURRENT_AFFAIRS', 'SCIENCE_SPACE', 'GEOGRAPHY', 'HISTORY_CIVICS', 'SPORTS_ARTS', 'GENERAL'] &&
+             data.category is string && data.category in [
+               'CURRENT_AFFAIRS', 'SCIENCE_SPACE', 'MATHEMATICS', 'ENGLISH_LITERATURE',
+               'GEOGRAPHY', 'HISTORY_CIVICS', 'COMPUTER_TECH', 'ENVIRONMENT_NATURE',
+               'SPORTS_ARTS', 'LOGICAL_REASONING', 'GENERAL'
+             ] &&
+             (!('targetGrade' in data) || (data.targetGrade is int && data.targetGrade >= 0 && data.targetGrade <= 12)) &&
              data.questionText is string && data.questionText.size() >= 5 && data.questionText.size() <= 400 &&
              data.options is list && data.options.size() == 4 &&
              data.options[0] is string && data.options[0].size() >= 1 && data.options[0].size() <= 150 &&
@@ -123,8 +130,8 @@ service cloud.firestore {
                          'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
-                         'userId', 'country', 'phoneNumber', 'email', 'studentName', 'schoolName',
-                         'passcodeHash', 'avatarBase64', 'coins',
+                         'userId', 'country', 'phoneNumber', 'email', 'studentName', 'grade', 'language',
+                         'schoolName', 'passcodeHash', 'avatarBase64', 'coins',
                          'dailyAskCount', 'weeklyAskCount', 'monthlyAskCount',
                          'askDayKey', 'askWeekKey', 'askMonthKey',
                          'dailyBonusDayKey', 'weeklyBonusWeekKey', 'monthlyBonusMonthKey',
@@ -139,8 +146,8 @@ service cloud.firestore {
                        incoming().userId == existing().userId &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
-                         'country', 'phoneNumber', 'email', 'studentName', 'schoolName',
-                         'passcodeHash', 'avatarBase64', 'coins',
+                         'country', 'phoneNumber', 'email', 'studentName', 'grade', 'language',
+                         'schoolName', 'passcodeHash', 'avatarBase64', 'coins',
                          'dailyAskCount', 'weeklyAskCount', 'monthlyAskCount',
                          'askDayKey', 'askWeekKey', 'askMonthKey',
                          'dailyBonusDayKey', 'weeklyBonusWeekKey', 'monthlyBonusMonthKey',
@@ -218,7 +225,7 @@ service cloud.firestore {
                          'createdAt', 'updatedAt'
                        ]) &&
                        incoming().keys().hasOnly([
-                         'authorId', 'authorName', 'category', 'questionText',
+                         'authorId', 'authorName', 'category', 'targetGrade', 'questionText',
                          'options', 'correctIndex', 'explanation', 'imageBase64',
                          'published', 'createdAt', 'updatedAt'
                        ]) &&
@@ -231,7 +238,7 @@ service cloud.firestore {
                        incoming().authorId == existing().authorId &&
                        incoming().createdAt == existing().createdAt &&
                        incoming().diff(existing()).affectedKeys().hasOnly([
-                         'authorName', 'category', 'questionText', 'options',
+                         'authorName', 'category', 'targetGrade', 'questionText', 'options',
                          'correctIndex', 'explanation', 'imageBase64', 'published', 'updatedAt'
                        ]);
 

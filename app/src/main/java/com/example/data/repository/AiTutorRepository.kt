@@ -1,223 +1,256 @@
 package com.example.data.repository
 
-import android.graphics.Bitmap
 import android.util.Log
-import com.example.data.firebase.AppCheckInitState
-import com.google.firebase.Firebase
-import com.google.firebase.ai.ai
-import com.google.firebase.ai.type.ImagePart
-import com.google.firebase.ai.type.ResponseModality
-import com.google.firebase.ai.type.content
-import com.google.firebase.ai.type.generationConfig
-import com.google.firebase.appcheck.AppCheckToken
-import com.google.firebase.appcheck.FirebaseAppCheck
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeout
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
+
+class GeminiAuthException(message: String) : IllegalStateException(message)
 
 class AiTutorRepository {
 
-    private val studyTutorModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-3.8-flash",
-            systemInstruction = content {
-                text(
-                    "You are BrightQuiz Study Tutor, a kind, encouraging academic tutor for school children. " +
-                        "STRICT RULE: You ONLY answer questions about school studies, books, literature, science, math, history, geography, general knowledge, current affairs for students, and test/exam preparation. " +
-                        "If the user's message is NOT about books, tests, or studies (such as video games, movies, gossip, personal chat, shopping, or non-academic entertainment), " +
-                        "begin your reply with the exact marker [OFF_TOPIC] followed by a friendly 1-2 sentence explanation that you only answer questions about tests, books, and studies. " +
-                        "If the question IS about books, studies, or tests, explain clearly in simple, child-friendly language without any [OFF_TOPIC] marker."
-                )
-            }
-        )
-    }
-
-    private val imageModel by lazy {
-        Firebase.ai.generativeModel(
-            modelName = "gemini-nano-banana-2.1",
-            generationConfig = generationConfig {
-                responseModalities = listOf(ResponseModality.IMAGE)
-            }
-        )
-    }
-
-    private suspend fun ensureValidAppCheckToken(forceRefresh: Boolean = false) {
-        try {
-            val token = withTimeout(20_000L) {
-                suspendCancellableCoroutine<AppCheckToken> { continuation ->
-                    FirebaseAppCheck.getInstance()
-                        .getAppCheckToken(forceRefresh)
-                        .addOnSuccessListener { result ->
-                            if (continuation.isActive) continuation.resume(result)
-                        }
-                        .addOnFailureListener { error ->
-                            if (continuation.isActive) continuation.resumeWithException(error)
-                        }
-                }
-            }
-            if (token.token.isBlank()) {
-                throw IllegalStateException(
-                    "App Check (${AppCheckInitState.providerSummary}) returned an empty token."
-                )
-            }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(
-                TAG,
-                "App Check token retrieval failed (provider=${AppCheckInitState.providerSummary}, forceRefresh=$forceRefresh)",
-                e
-            )
-            throw IllegalStateException(
-                "App Check (${AppCheckInitState.providerSummary}) failed: ${e.localizedMessage ?: e.javaClass.simpleName}",
-                e
+    suspend fun verifyGeminiKey(apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.length < 20) {
+            return@withContext Result.failure(
+                IllegalArgumentException("Please enter a valid Gemini API key from Google AI Studio.")
             )
         }
-    }
-
-    private fun isAppCheckServerError(error: Throwable): Boolean {
-        val msg = error.message.orEmpty()
-        return msg.contains("App Check", ignoreCase = true) ||
-            msg.contains("appcheck", ignoreCase = true)
-    }
-
-    fun askStudyTutorStream(question: String, recentHistory: List<Pair<String, String>>): Flow<String> = flow {
-        val contextPrompt = buildString {
-            if (recentHistory.isNotEmpty()) {
-                appendLine("Recent study conversation:")
-                recentHistory.takeLast(4).forEach { (role, msg) ->
-                    appendLine("$role: $msg")
+        var lastError: Exception? = null
+        for (model in MODEL_CANDIDATES) {
+            try {
+                val url = URL("$BASE_URL/$model:generateContent")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 15_000
+                    readTimeout = 20_000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("x-goog-api-key", cleanKey)
                 }
-                appendLine()
+                val payload = JSONObject().apply {
+                    put(
+                        "contents",
+                        JSONArray().put(
+                            JSONObject().apply {
+                                put("role", "user")
+                                put("parts", JSONArray().put(JSONObject().put("text", "Reply with OK.")))
+                            }
+                        )
+                    )
+                    put("generationConfig", JSONObject().put("maxOutputTokens", 8))
+                }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(payload.toString())
+                }
+                val code = conn.responseCode
+                if (code in 200..299) {
+                    conn.disconnect()
+                    return@withContext Result.success(Unit)
+                }
+                val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                conn.disconnect()
+                if (code == 404) {
+                    lastError = IllegalStateException("Model $model unavailable ($code)")
+                    continue
+                }
+                val isKeyError = code == 401 || code == 403 ||
+                    (code == 400 && errorText.contains("key", ignoreCase = true))
+                if (isKeyError) {
+                    val friendly = parseApiErrorMessage(errorText).ifBlank {
+                        "Invalid Gemini API key (HTTP $code). Please check your key in Google AI Studio."
+                    }
+                    return@withContext Result.failure(GeminiAuthException(friendly))
+                }
+                lastError = IllegalStateException("Gemini check failed (HTTP $code): ${parseApiErrorMessage(errorText)}")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
             }
-            append("Student question: ")
-            append(question.trim())
+        }
+        Result.failure(lastError ?: IllegalStateException("Unable to verify Gemini key right now."))
+    }
+
+    fun askStudyTutorStream(
+        apiKey: String,
+        question: String,
+        recentHistory: List<Pair<String, String>>,
+        studentGrade: String,
+        preferredLanguage: String
+    ): Flow<String> = flow {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isBlank()) {
+            throw GeminiAuthException("Please sign in to Gemini before asking questions.")
         }
 
-        var attempt = 0
-        while (true) {
-            ensureValidAppCheckToken(forceRefresh = attempt > 0)
+        val systemText = buildString {
+            append("You are Gemini Study Tutor in BrightQuiz, a kind academic tutor for a student in ")
+            append(studentGrade.ifBlank { "Grade 5" })
+            append(". ")
+            append("STRICT RULE: You ONLY answer questions about books, school studies, academic subjects, and tests/exam preparation. ")
+            append("If the user's message is NOT about books, tests, or studies (such as video games, movies, gossip, casual greetings without study content, shopping, or non-academic chat), ")
+            append("begin your reply with the exact marker [OFF_TOPIC] followed by a polite 1-2 sentence explanation in ")
+            append(preferredLanguage.ifBlank { "English" })
+            append(" saying you only help with books, studies, and tests. ")
+            append("If the question IS about books, studies, or tests, explain clearly for a ")
+            append(studentGrade.ifBlank { "Grade 5" })
+            append(" student in ")
+            append(preferredLanguage.ifBlank { "English" })
+            append(" without any [OFF_TOPIC] marker.")
+        }
+
+        val contentsArray = JSONArray()
+        recentHistory.takeLast(6).forEach { (roleLabel, msg) ->
+            val role = if (roleLabel.equals("Student", ignoreCase = true)) "user" else "model"
+            contentsArray.put(
+                JSONObject().apply {
+                    put("role", role)
+                    put("parts", JSONArray().put(JSONObject().put("text", msg)))
+                }
+            )
+        }
+        contentsArray.put(
+            JSONObject().apply {
+                put("role", "user")
+                put("parts", JSONArray().put(JSONObject().put("text", question.trim())))
+            }
+        )
+
+        val requestJson = JSONObject().apply {
+            put(
+                "systemInstruction",
+                JSONObject().put(
+                    "parts",
+                    JSONArray().put(JSONObject().put("text", systemText))
+                )
+            )
+            put("contents", contentsArray)
+        }
+
+        var succeeded = false
+        var lastException: Exception? = null
+
+        for (model in MODEL_CANDIDATES) {
             val accumulated = StringBuilder()
             try {
-                withTimeout(60_000L) {
-                    studyTutorModel.generateContentStream(contextPrompt).collect { chunk ->
-                        val text = chunk.text.orEmpty()
-                        if (text.isNotEmpty()) {
-                            accumulated.append(text)
+                val url = URL("$BASE_URL/$model:streamGenerateContent?alt=sse")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    connectTimeout = 20_000
+                    readTimeout = 60_000
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json")
+                    setRequestProperty("x-goog-api-key", cleanKey)
+                }
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { writer ->
+                    writer.write(requestJson.toString())
+                }
+
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    val errBody = conn.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                    conn.disconnect()
+                    val apiMsg = parseApiErrorMessage(errBody)
+                    if (code == 404) {
+                        lastException = IllegalStateException("Model $model not available: $apiMsg")
+                        continue
+                    }
+                    val isKeyError = code == 401 || code == 403 ||
+                        (code == 400 && errBody.contains("key", ignoreCase = true))
+                    if (isKeyError) {
+                        throw GeminiAuthException(
+                            apiMsg.ifBlank { "Gemini sign-in failed (HTTP $code). Please sign in to Gemini again." }
+                        )
+                    }
+                    throw IllegalStateException(
+                        apiMsg.ifBlank { "Gemini request failed (HTTP $code)." }
+                    )
+                }
+
+                BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (!line.startsWith("data:")) continue
+                        val dataPayload = line.removePrefix("data:").trim()
+                        if (dataPayload.isEmpty() || dataPayload == "[DONE]") continue
+                        val chunkText = extractCandidateText(dataPayload)
+                        if (chunkText.isNotEmpty()) {
+                            accumulated.append(chunkText)
                             emit(accumulated.toString())
                         }
                     }
                 }
+                conn.disconnect()
                 if (accumulated.isBlank()) {
-                    throw IllegalStateException("Study tutor returned an empty response.")
+                    throw IllegalStateException("Gemini returned an empty response. Please try asking again.")
                 }
+                succeeded = true
                 break
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                if (attempt == 0 && accumulated.isEmpty() && isAppCheckServerError(e)) {
-                    attempt++
-                    Log.w(
-                        TAG,
-                        "Retrying Study Tutor after force-refreshing App Check token (${AppCheckInitState.providerSummary})",
-                        e
-                    )
-                    continue
-                }
-                if (isAppCheckServerError(e)) {
-                    throw IllegalStateException(
-                        "${e.localizedMessage ?: "Firebase App Check token is invalid."} [${AppCheckInitState.providerSummary}]",
-                        e
-                    )
-                }
-                throw e
-            }
-        }
-    }
-
-    suspend fun generateAvatarBitmap(characterPrompt: String): Result<Bitmap> {
-        return try {
-            val sanitized = characterPrompt.trim().ifBlank { "cheerful young scholar with glasses and stars" }
-            val fullPrompt = "Friendly colorful Pixar-style 3D portrait avatar for a student profile badge: $sanitized, bright warm studio lighting, clean pastel background, centered head-and-shoulders portrait, no text"
-            val bitmap = generateImageWithAppCheckRetry(fullPrompt)
-            if (bitmap != null) {
-                Result.success(bitmap)
-            } else {
-                Result.failure(IllegalStateException("No image was returned by Gemini."))
-            }
-        } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "AI avatar generation timed out", e)
-            Result.failure(Exception("Avatar generation timed out after 60 seconds. Please try again."))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "AI avatar generation failed", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun generateCurrentAffairsBitmap(topicPrompt: String): Result<Bitmap> {
-        return try {
-            val sanitized = topicPrompt.trim().ifBlank { "world globe with science discovery icons" }
-            val fullPrompt = "Child-friendly colorful editorial vector illustration for a school current affairs quiz card: $sanitized, crisp clean details, bright lighting, no text or labels"
-            val bitmap = generateImageWithAppCheckRetry(fullPrompt)
-            if (bitmap != null) {
-                Result.success(bitmap)
-            } else {
-                Result.failure(IllegalStateException("No illustration was returned by Gemini."))
-            }
-        } catch (e: TimeoutCancellationException) {
-            Log.e(TAG, "Current affairs illustration timed out", e)
-            Result.failure(Exception("Illustration timed out after 60 seconds. Please try again."))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Log.e(TAG, "Current affairs illustration failed", e)
-            Result.failure(e)
-        }
-    }
-
-    private suspend fun generateImageWithAppCheckRetry(fullPrompt: String): Bitmap? {
-        var attempt = 0
-        while (true) {
-            ensureValidAppCheckToken(forceRefresh = attempt > 0)
-            try {
-                return withTimeout(60_000L) {
-                    val response = imageModel.generateContent(fullPrompt)
-                    val imagePart = response.candidates.firstOrNull()
-                        ?.content?.parts?.filterIsInstance<ImagePart>()
-                        ?.firstOrNull()
-                    imagePart?.image
-                }
-            } catch (e: CancellationException) {
+            } catch (e: GeminiAuthException) {
                 throw e
             } catch (e: Exception) {
-                if (attempt == 0 && isAppCheckServerError(e)) {
-                    attempt++
-                    Log.w(
-                        TAG,
-                        "Retrying image generation after force-refreshing App Check token (${AppCheckInitState.providerSummary})",
-                        e
-                    )
-                    continue
+                Log.w(TAG, "Gemini stream attempt failed for $model", e)
+                lastException = e
+                if (accumulated.isNotEmpty()) {
+                    throw e
                 }
-                if (isAppCheckServerError(e)) {
-                    throw IllegalStateException(
-                        "${e.localizedMessage ?: "Firebase App Check token is invalid."} [${AppCheckInitState.providerSummary}]",
-                        e
-                    )
-                }
-                throw e
             }
+        }
+
+        if (!succeeded) {
+            throw (lastException ?: IllegalStateException("Could not reach Gemini right now."))
+        }
+    }.flowOn(Dispatchers.IO)
+
+    private fun extractCandidateText(jsonLine: String): String {
+        return try {
+            val root = JSONObject(jsonLine)
+            val candidates = root.optJSONArray("candidates") ?: return ""
+            if (candidates.length() == 0) return ""
+            val parts = candidates.optJSONObject(0)
+                ?.optJSONObject("content")
+                ?.optJSONArray("parts") ?: return ""
+            buildString {
+                for (i in 0 until parts.length()) {
+                    val part = parts.optJSONObject(i) ?: continue
+                    val text = part.optString("text", "")
+                    if (text.isNotEmpty()) append(text)
+                }
+            }
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    private fun parseApiErrorMessage(body: String): String {
+        if (body.isBlank()) return ""
+        return try {
+            JSONObject(body).optJSONObject("error")?.optString("message", "").orEmpty()
+        } catch (_: Exception) {
+            body.take(200)
         }
     }
 
     private companion object {
-        const val TAG = "AiTutorRepo"
+        const val TAG = "GeminiTutorRepo"
+        const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+        val MODEL_CANDIDATES = listOf(
+            "gemini-3.8-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-2.5-flash"
+        )
     }
 }
